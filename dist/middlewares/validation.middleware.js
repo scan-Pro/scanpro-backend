@@ -8,10 +8,9 @@ export const validate = (schema) => {
                 query: req.query,
                 params: req.params,
             });
-            // Optionally assign sanitized data back
-            req.body = parsed.body ?? req.body;
-            req.query = parsed.query ?? req.query;
-            req.params = parsed.params ?? req.params;
+            if (parsed.body !== undefined) {
+                req.body = parsed.body;
+            }
             next();
         }
         catch (error) {

@@ -4,6 +4,7 @@ import cors from 'cors';
 import { env } from './config/env.js';
 import { apiRateLimiter } from './middlewares/rate-limit.middleware.js';
 import { errorHandler } from './middlewares/error.middleware.js';
+import { requestLogger } from './middlewares/logger.middleware.js';
 import { NotFoundError } from './common/errors/app-error.js';
 
 // Route Imports
@@ -32,6 +33,9 @@ export const createApp = (): Express => {
   // Body Parsers
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+  // HTTP Request / Response Terminal Logger
+  app.use(requestLogger);
 
   // API Routes (v1)
   const apiV1Router = express.Router();
