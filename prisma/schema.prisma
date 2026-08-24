@@ -1,0 +1,95 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum SyncStatus {
+  PENDING
+  SYNCED
+  FAILED
+}
+
+enum FilterType {
+  ORIGINAL
+  AUTO
+  MAGIC_COLOR
+  GRAYSCALE
+  BLACK_AND_WHITE
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String         @map("password_hash")
+  name          String
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  documents     Document[]
+  folders       Folder[]
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique @db.VarChar(500)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("refresh_tokens")
+}
+
+model Folder {
+  id        String     @id @default(uuid())
+  userId    String     @map("user_id")
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String     @db.VarChar(50)
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+  documents Document[]
+
+  @@unique([userId, name])
+  @@map("folders")
+}
+
+model Document {
+  id           String         @id @default(uuid())
+  userId       String         @map("user_id")
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folderId     String?        @map("folder_id")
+  folder       Folder?        @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  title        String         @db.VarChar(255)
+  thumbnailUrl String?        @map("thumbnail_url") @db.VarChar(500)
+  pdfUrl       String?        @map("pdf_url") @db.VarChar(500)
+  pageCount    Int            @default(1) @map("page_count")
+  isFavorite   Boolean        @default(false) @map("is_favorite")
+  syncStatus   SyncStatus     @default(SYNCED) @map("sync_status")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+  pages        DocumentPage[]
+
+  @@index([userId, isFavorite])
+  @@index([userId, folderId])
+  @@map("documents")
+}
+
+model DocumentPage {
+  id           String     @id @default(uuid())
+  documentId   String     @map("document_id")
+  document     Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  pageOrder    Int        @map("page_order")
+  imageUrl     String     @map("image_url") @db.VarChar(500)
+  thumbnailUrl String?    @map("thumbnail_url") @db.VarChar(500)
+  filter       FilterType @default(ORIGINAL)
+  rotation     Int        @default(0)
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@map("document_pages")
+}
