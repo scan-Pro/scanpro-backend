@@ -10,10 +10,10 @@ export const validate = (schema: ZodSchema) => {
         query: req.query,
         params: req.params,
       });
-      // Optionally assign sanitized data back
-      req.body = (parsed as { body?: unknown }).body ?? req.body;
-      req.query = (parsed as { query?: unknown }).query as Request['query'] ?? req.query;
-      req.params = (parsed as { params?: unknown }).params as Request['params'] ?? req.params;
+
+      if ((parsed as { body?: unknown }).body !== undefined) {
+        req.body = (parsed as { body?: unknown }).body;
+      }
       next();
     } catch (error) {
       if (error instanceof ZodError) {
