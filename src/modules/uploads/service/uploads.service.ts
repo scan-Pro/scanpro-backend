@@ -23,11 +23,11 @@ export class UploadsService {
 
       let fileUrl: string;
       if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.includes('backblazeb2.com')) {
-        fileUrl = `https://${env.AWS_S3_BUCKET}.s3.${env.AWS_REGION}.backblazeb2.com/${uniqueKey}`;
+        fileUrl = `https://s3.${env.AWS_REGION}.backblazeb2.com/${env.AWS_S3_BUCKET}/${uniqueKey}`;
       } else if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.trim() !== '') {
         fileUrl = `${env.AWS_ENDPOINT}/${env.AWS_S3_BUCKET}/${uniqueKey}`;
       } else {
-        fileUrl = `https://${env.AWS_S3_BUCKET}.s3.${env.AWS_REGION}.amazonaws.com/${uniqueKey}`;
+        fileUrl = `https://s3.${env.AWS_REGION}.amazonaws.com/${env.AWS_S3_BUCKET}/${uniqueKey}`;
       }
 
       return {
