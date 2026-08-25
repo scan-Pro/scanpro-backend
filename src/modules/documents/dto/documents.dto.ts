@@ -18,6 +18,8 @@ export interface CreateDocumentDto {
   pageCount?: number;
   isFavorite?: boolean;
   syncStatus?: SyncStatus;
+  createdAt?: string;
+  updatedAt?: string;
   pages?: CreateDocumentPageDto[];
 }
 

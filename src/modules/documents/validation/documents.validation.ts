@@ -20,6 +20,8 @@ export const createDocumentSchema = z.object({
     pdfUrl: z.string().optional().nullable(),
     pageCount: z.number().int().min(1).optional().default(1),
     isFavorite: z.boolean().optional().default(false),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
     pages: z.array(createDocumentPageSchema).optional(),
   }),
 });

@@ -19,6 +19,8 @@ export class DocumentsRepository {
         pdfUrl: data.pdfUrl || null,
         pageCount: data.pages ? data.pages.length : (data.pageCount || 1),
         isFavorite: data.isFavorite ?? false,
+        ...(data.createdAt ? { createdAt: new Date(data.createdAt) } : {}),
+        ...(data.updatedAt ? { updatedAt: new Date(data.updatedAt) } : {}),
         pages: data.pages && data.pages.length > 0
           ? {
               create: data.pages.map((p) => ({
@@ -64,7 +66,7 @@ export class DocumentsRepository {
         folder: { select: { id: true, name: true } },
         pages: { orderBy: { pageOrder: 'asc' } },
       },
-      orderBy: { updatedAt: 'desc' },
+      orderBy: { createdAt: 'desc' },
     });
   }
 

@@ -30,6 +30,8 @@ export declare const createDocumentSchema: z.ZodObject<{
         pdfUrl: z.ZodNullable<z.ZodOptional<z.ZodString>>;
         pageCount: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
         isFavorite: z.ZodDefault<z.ZodOptional<z.ZodBoolean>>;
+        createdAt: z.ZodOptional<z.ZodString>;
+        updatedAt: z.ZodOptional<z.ZodString>;
         pages: z.ZodOptional<z.ZodArray<z.ZodObject<{
             id: z.ZodOptional<z.ZodString>;
             pageOrder: z.ZodNumber;
@@ -66,6 +68,8 @@ export declare const createDocumentSchema: z.ZodObject<{
         }[] | undefined;
         id?: string | undefined;
         folderId?: string | null | undefined;
+        createdAt?: string | undefined;
+        updatedAt?: string | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
     }, {
@@ -81,6 +85,8 @@ export declare const createDocumentSchema: z.ZodObject<{
         }[] | undefined;
         id?: string | undefined;
         folderId?: string | null | undefined;
+        createdAt?: string | undefined;
+        updatedAt?: string | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
         pageCount?: number | undefined;
@@ -100,6 +106,8 @@ export declare const createDocumentSchema: z.ZodObject<{
         }[] | undefined;
         id?: string | undefined;
         folderId?: string | null | undefined;
+        createdAt?: string | undefined;
+        updatedAt?: string | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
     };
@@ -117,6 +125,8 @@ export declare const createDocumentSchema: z.ZodObject<{
         }[] | undefined;
         id?: string | undefined;
         folderId?: string | null | undefined;
+        createdAt?: string | undefined;
+        updatedAt?: string | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
         pageCount?: number | undefined;

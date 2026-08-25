@@ -1,4 +1,4 @@
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import crypto from 'crypto';
 import { s3Client } from '../../../config/aws.js';
@@ -18,13 +18,13 @@ export class UploadsService {
             const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
             let fileUrl;
             if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.includes('backblazeb2.com')) {
-                fileUrl = `https://${env.AWS_S3_BUCKET}.s3.${env.AWS_REGION}.backblazeb2.com/${uniqueKey}`;
+                fileUrl = `https://s3.${env.AWS_REGION}.backblazeb2.com/${env.AWS_S3_BUCKET}/${uniqueKey}`;
             }
             else if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.trim() !== '') {
                 fileUrl = `${env.AWS_ENDPOINT}/${env.AWS_S3_BUCKET}/${uniqueKey}`;
             }
             else {
-                fileUrl = `https://${env.AWS_S3_BUCKET}.s3.${env.AWS_REGION}.amazonaws.com/${uniqueKey}`;
+                fileUrl = `https://s3.${env.AWS_REGION}.amazonaws.com/${env.AWS_S3_BUCKET}/${uniqueKey}`;
             }
             return {
                 uploadUrl,
@@ -42,6 +42,43 @@ export class UploadsService {
             key: uniqueKey,
             expiresIn,
         };
+    }
+    /**
+     * Extracts the S3 object key from a full public URL and deletes the file from B2/S3.
+     * Safe to call even if credentials are not configured (no-op in that case).
+     */
+    async deleteFileByUrl(fileUrl) {
+        if (!env.AWS_ACCESS_KEY_ID || !env.AWS_SECRET_ACCESS_KEY || !env.AWS_S3_BUCKET) {
+            return; // No cloud storage configured
+        }
+        try {
+            const key = this._extractKeyFromUrl(fileUrl);
+            if (!key)
+                return;
+            await s3Client.send(new DeleteObjectCommand({
+                Bucket: env.AWS_S3_BUCKET,
+                Key: key,
+            }));
+        }
+        catch (err) {
+            // Log but don't rethrow — a failed B2 delete must not block the DB delete
+            console.error('[UploadsService] Failed to delete B2 file:', fileUrl, err);
+        }
+    }
+    _extractKeyFromUrl(url) {
+        try {
+            const parsed = new URL(url);
+            // pathname looks like  /<bucket>/<key>  or  /<key>  depending on endpoint style
+            const parts = parsed.pathname.replace(/^\//, '').split('/');
+            // If first segment matches bucket name, strip it
+            if (parts[0] === env.AWS_S3_BUCKET) {
+                return parts.slice(1).join('/');
+            }
+            return parts.join('/');
+        }
+        catch {
+            return null;
+        }
     }
 }
 //# sourceMappingURL=uploads.service.js.map
