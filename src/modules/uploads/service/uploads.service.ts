@@ -11,7 +11,7 @@ export class UploadsService {
     const uniqueKey = `${dto.folder || 'documents'}/${userId}/${crypto.randomUUID()}.${fileExtension}`;
     const expiresIn = 3600; // 1 hour
 
-    // If AWS credentials are provided, generate true presigned S3 URL
+    // If AWS / Backblaze B2 credentials are provided, generate true presigned S3 URL
     if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
       const command = new PutObjectCommand({
         Bucket: env.AWS_S3_BUCKET,
@@ -20,7 +20,15 @@ export class UploadsService {
       });
 
       const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
-      const fileUrl = `https://${env.AWS_S3_BUCKET}.s3.${env.AWS_REGION}.amazonaws.com/${uniqueKey}`;
+
+      let fileUrl: string;
+      if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.includes('backblazeb2.com')) {
+        fileUrl = `https://${env.AWS_S3_BUCKET}.s3.${env.AWS_REGION}.backblazeb2.com/${uniqueKey}`;
+      } else if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.trim() !== '') {
+        fileUrl = `${env.AWS_ENDPOINT}/${env.AWS_S3_BUCKET}/${uniqueKey}`;
+      } else {
+        fileUrl = `https://${env.AWS_S3_BUCKET}.s3.${env.AWS_REGION}.amazonaws.com/${uniqueKey}`;
+      }
 
       return {
         uploadUrl,

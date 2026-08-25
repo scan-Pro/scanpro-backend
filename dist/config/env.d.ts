@@ -9,6 +9,7 @@ export declare const env: {
     AWS_ACCESS_KEY_ID: string;
     AWS_SECRET_ACCESS_KEY: string;
     AWS_REGION: string;
+    AWS_ENDPOINT: string;
     AWS_S3_BUCKET: string;
     CORS_ORIGIN: string;
 };

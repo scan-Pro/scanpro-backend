@@ -47,6 +47,7 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
   const ip = req.ip || req.socket.remoteAddress || '-';
 
   // 1. Log Incoming Request
+  console.log(colors.dim + '─'.repeat(60) + colors.reset);
   console.log(
     `${colors.gray}[${timestamp}]${colors.reset} ` +
     `${colors.cyan}📥 INCOMING${colors.reset} ` +
@@ -54,19 +55,35 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
     `${colors.dim}(from ${ip})${colors.reset}`
   );
 
-  if (req.body && Object.keys(req.body).length > 0) {
+  if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
     console.log(
-      `   ${colors.dim}Body:${colors.reset} ${JSON.stringify(sanitizePayload(req.body))}`
+      `   ${colors.dim}Request Body:${colors.reset} ${JSON.stringify(sanitizePayload(req.body), null, 2)}`
     );
   }
 
   if (req.query && Object.keys(req.query).length > 0) {
     console.log(
-      `   ${colors.dim}Query:${colors.reset} ${JSON.stringify(req.query)}`
+      `   ${colors.dim}Query Params:${colors.reset} ${JSON.stringify(req.query, null, 2)}`
     );
   }
 
-  // 2. Intercept response finish to log status & elapsed time
+  // 2. Intercept response body
+  let responseBody: unknown = undefined;
+  const originalSend = res.send;
+  res.send = function (body: any): Response {
+    try {
+      if (typeof body === 'string') {
+        responseBody = JSON.parse(body);
+      } else {
+        responseBody = body;
+      }
+    } catch {
+      responseBody = body;
+    }
+    return originalSend.call(this, body);
+  };
+
+  // 3. Log Completed Response on finish
   res.on('finish', () => {
     const duration = Date.now() - start;
     const statusCode = res.statusCode;
@@ -79,6 +96,12 @@ export const requestLogger = (req: Request, res: Response, next: NextFunction): 
       `${statusColor}${colors.bold}${statusCode}${colors.reset} ` +
       `${colors.dim}(${duration}ms)${colors.reset}`
     );
+
+    if (responseBody !== undefined) {
+      console.log(
+        `   ${colors.dim}Response Body:${colors.reset} ${JSON.stringify(sanitizePayload(responseBody), null, 2)}`
+      );
+    }
     console.log(colors.dim + '─'.repeat(60) + colors.reset);
   });
 

@@ -9,8 +9,9 @@ const envSchema = z.object({
     JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
     AWS_ACCESS_KEY_ID: z.string().optional().default(''),
     AWS_SECRET_ACCESS_KEY: z.string().optional().default(''),
-    AWS_REGION: z.string().default('us-east-1'),
-    AWS_S3_BUCKET: z.string().default('scanpro-document-uploads'),
+    AWS_REGION: z.string().default('us-east-005'),
+    AWS_ENDPOINT: z.string().optional().default(''),
+    AWS_S3_BUCKET: z.string().default('scaniro-app'),
     CORS_ORIGIN: z.string().default('*'),
 });
 const parseEnv = () => {
