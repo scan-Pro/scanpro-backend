@@ -2,9 +2,10 @@ import { prisma } from '../../../config/database.js';
 import { Folder } from '@prisma/client';
 
 export class FoldersRepository {
-  async createFolder(userId: string, name: string): Promise<Folder> {
+  async createFolder(userId: string, name: string, id?: string): Promise<Folder> {
     return prisma.folder.create({
       data: {
+        ...(id ? { id } : {}),
         userId,
         name,
       },

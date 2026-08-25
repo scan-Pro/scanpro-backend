@@ -1,6 +1,6 @@
 import { Folder } from '@prisma/client';
 export declare class FoldersRepository {
-    createFolder(userId: string, name: string): Promise<Folder>;
+    createFolder(userId: string, name: string, id?: string): Promise<Folder>;
     findUserFolders(userId: string): Promise<(Folder & {
         _count: {
             documents: number;

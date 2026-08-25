@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const createFolderSchema = z.object({
   body: z.object({
+    id: z.string().uuid('Invalid folder ID format').optional(),
     name: z
       .string({ required_error: 'Folder name is required' })
       .trim()

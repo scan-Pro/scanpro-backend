@@ -13,7 +13,7 @@ export class FoldersService {
       throw new ConflictError('A folder with this name already exists', 'FOLDER_ALREADY_EXISTS');
     }
 
-    return this.foldersRepository.createFolder(userId, trimmedName);
+    return this.foldersRepository.createFolder(userId, trimmedName, dto.id);
   }
 
   async getFolders(userId: string) {

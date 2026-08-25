@@ -1,19 +1,24 @@
 import { z } from 'zod';
 export declare const createFolderSchema: z.ZodObject<{
     body: z.ZodObject<{
+        id: z.ZodOptional<z.ZodString>;
         name: z.ZodString;
     }, "strip", z.ZodTypeAny, {
         name: string;
+        id?: string | undefined;
     }, {
         name: string;
+        id?: string | undefined;
     }>;
 }, "strip", z.ZodTypeAny, {
     body: {
         name: string;
+        id?: string | undefined;
     };
 }, {
     body: {
         name: string;
+        id?: string | undefined;
     };
 }>;
 export declare const updateFolderSchema: z.ZodObject<{
