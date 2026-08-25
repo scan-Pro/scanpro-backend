@@ -7,7 +7,7 @@ export declare const createDocumentPageSchema: z.ZodObject<{
     filter: z.ZodDefault<z.ZodOptional<z.ZodEnum<["ORIGINAL", "AUTO", "MAGIC_COLOR", "GRAYSCALE", "BLACK_AND_WHITE"]>>>;
     rotation: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
 }, "strip", z.ZodTypeAny, {
-    filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
+    filter: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE";
     pageOrder: number;
     imageUrl: string;
     rotation: number;
@@ -16,7 +16,7 @@ export declare const createDocumentPageSchema: z.ZodObject<{
 }, {
     pageOrder: number;
     imageUrl: string;
-    filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
+    filter?: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE" | undefined;
     id?: string | undefined;
     thumbnailUrl?: string | undefined;
     rotation?: number | undefined;
@@ -38,7 +38,7 @@ export declare const createDocumentSchema: z.ZodObject<{
             filter: z.ZodDefault<z.ZodOptional<z.ZodEnum<["ORIGINAL", "AUTO", "MAGIC_COLOR", "GRAYSCALE", "BLACK_AND_WHITE"]>>>;
             rotation: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
         }, "strip", z.ZodTypeAny, {
-            filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
+            filter: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE";
             pageOrder: number;
             imageUrl: string;
             rotation: number;
@@ -47,79 +47,79 @@ export declare const createDocumentSchema: z.ZodObject<{
         }, {
             pageOrder: number;
             imageUrl: string;
-            filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
+            filter?: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE" | undefined;
             id?: string | undefined;
             thumbnailUrl?: string | undefined;
             rotation?: number | undefined;
         }>, "many">>;
     }, "strip", z.ZodTypeAny, {
         title: string;
-        pageCount: number;
         isFavorite: boolean;
-        id?: string | undefined;
-        folderId?: string | null | undefined;
-        thumbnailUrl?: string | null | undefined;
-        pdfUrl?: string | null | undefined;
+        pageCount: number;
         pages?: {
-            filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
+            filter: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE";
             pageOrder: number;
             imageUrl: string;
             rotation: number;
             id?: string | undefined;
             thumbnailUrl?: string | undefined;
         }[] | undefined;
+        id?: string | undefined;
+        folderId?: string | null | undefined;
+        thumbnailUrl?: string | null | undefined;
+        pdfUrl?: string | null | undefined;
     }, {
         title: string;
+        isFavorite?: boolean | undefined;
+        pages?: {
+            pageOrder: number;
+            imageUrl: string;
+            filter?: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE" | undefined;
+            id?: string | undefined;
+            thumbnailUrl?: string | undefined;
+            rotation?: number | undefined;
+        }[] | undefined;
         id?: string | undefined;
         folderId?: string | null | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
         pageCount?: number | undefined;
-        isFavorite?: boolean | undefined;
-        pages?: {
-            pageOrder: number;
-            imageUrl: string;
-            filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
-            id?: string | undefined;
-            thumbnailUrl?: string | undefined;
-            rotation?: number | undefined;
-        }[] | undefined;
     }>;
 }, "strip", z.ZodTypeAny, {
     body: {
         title: string;
-        pageCount: number;
         isFavorite: boolean;
-        id?: string | undefined;
-        folderId?: string | null | undefined;
-        thumbnailUrl?: string | null | undefined;
-        pdfUrl?: string | null | undefined;
+        pageCount: number;
         pages?: {
-            filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
+            filter: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE";
             pageOrder: number;
             imageUrl: string;
             rotation: number;
             id?: string | undefined;
             thumbnailUrl?: string | undefined;
         }[] | undefined;
+        id?: string | undefined;
+        folderId?: string | null | undefined;
+        thumbnailUrl?: string | null | undefined;
+        pdfUrl?: string | null | undefined;
     };
 }, {
     body: {
         title: string;
+        isFavorite?: boolean | undefined;
+        pages?: {
+            pageOrder: number;
+            imageUrl: string;
+            filter?: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE" | undefined;
+            id?: string | undefined;
+            thumbnailUrl?: string | undefined;
+            rotation?: number | undefined;
+        }[] | undefined;
         id?: string | undefined;
         folderId?: string | null | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
         pageCount?: number | undefined;
-        isFavorite?: boolean | undefined;
-        pages?: {
-            pageOrder: number;
-            imageUrl: string;
-            filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
-            id?: string | undefined;
-            thumbnailUrl?: string | undefined;
-            rotation?: number | undefined;
-        }[] | undefined;
     };
 }>;
 export declare const updateDocumentSchema: z.ZodObject<{
@@ -138,43 +138,43 @@ export declare const updateDocumentSchema: z.ZodObject<{
         pageCount: z.ZodOptional<z.ZodNumber>;
         isFavorite: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
-        folderId?: string | null | undefined;
         title?: string | undefined;
+        isFavorite?: boolean | undefined;
+        folderId?: string | null | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
         pageCount?: number | undefined;
-        isFavorite?: boolean | undefined;
     }, {
-        folderId?: string | null | undefined;
         title?: string | undefined;
+        isFavorite?: boolean | undefined;
+        folderId?: string | null | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
         pageCount?: number | undefined;
-        isFavorite?: boolean | undefined;
     }>;
 }, "strip", z.ZodTypeAny, {
     params: {
         id: string;
     };
     body: {
-        folderId?: string | null | undefined;
         title?: string | undefined;
+        isFavorite?: boolean | undefined;
+        folderId?: string | null | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
         pageCount?: number | undefined;
-        isFavorite?: boolean | undefined;
     };
 }, {
     params: {
         id: string;
     };
     body: {
-        folderId?: string | null | undefined;
         title?: string | undefined;
+        isFavorite?: boolean | undefined;
+        folderId?: string | null | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
         pageCount?: number | undefined;
-        isFavorite?: boolean | undefined;
     };
 }>;
 export declare const documentIdParamSchema: z.ZodObject<{

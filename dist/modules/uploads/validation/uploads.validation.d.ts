@@ -5,9 +5,9 @@ export declare const getPresignedUrlSchema: z.ZodObject<{
         fileType: z.ZodString;
         folder: z.ZodDefault<z.ZodOptional<z.ZodString>>;
     }, "strip", z.ZodTypeAny, {
-        folder: string;
         fileName: string;
         fileType: string;
+        folder: string;
     }, {
         fileName: string;
         fileType: string;
@@ -15,9 +15,9 @@ export declare const getPresignedUrlSchema: z.ZodObject<{
     }>;
 }, "strip", z.ZodTypeAny, {
     body: {
-        folder: string;
         fileName: string;
         fileType: string;
+        folder: string;
     };
 }, {
     body: {

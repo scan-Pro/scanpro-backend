@@ -6,6 +6,7 @@ import { apiRateLimiter } from './middlewares/rate-limit.middleware.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import { requestLogger } from './middlewares/logger.middleware.js';
 import { NotFoundError } from './common/errors/app-error.js';
+import { setupSwagger } from './config/swagger.js';
 
 // Route Imports
 import { healthRoutes } from './modules/health/health.routes.js';
@@ -18,8 +19,12 @@ import { uploadsRoutes } from './modules/uploads/routes/uploads.routes.js';
 export const createApp = (): Express => {
   const app = express();
 
-  // Security Middlewares
-  app.use(helmet());
+  // Security Middlewares (CSP disabled to allow Swagger UI scripts/styles)
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+    })
+  );
   app.use(
     cors({
       origin: env.CORS_ORIGIN === '*' ? '*' : env.CORS_ORIGIN.split(','),
@@ -27,15 +32,18 @@ export const createApp = (): Express => {
     })
   );
 
-  // Rate Limiting
-  app.use(apiRateLimiter);
-
   // Body Parsers
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
   // HTTP Request / Response Terminal Logger
   app.use(requestLogger);
+
+  // Swagger Documentation UI (/docs, /api/v1/docs, /docs.json)
+  setupSwagger(app);
+
+  // Rate Limiting (Applied to API endpoints)
+  app.use('/api', apiRateLimiter);
 
   // API Routes (v1)
   const apiV1Router = express.Router();

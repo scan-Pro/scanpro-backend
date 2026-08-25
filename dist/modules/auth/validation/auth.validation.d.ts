@@ -5,25 +5,25 @@ export declare const registerSchema: z.ZodObject<{
         email: z.ZodString;
         password: z.ZodString;
     }, "strip", z.ZodTypeAny, {
-        name: string;
         email: string;
         password: string;
+        name: string;
     }, {
-        name: string;
         email: string;
         password: string;
+        name: string;
     }>;
 }, "strip", z.ZodTypeAny, {
     body: {
-        name: string;
         email: string;
         password: string;
+        name: string;
     };
 }, {
     body: {
-        name: string;
         email: string;
         password: string;
+        name: string;
     };
 }>;
 export declare const loginSchema: z.ZodObject<{

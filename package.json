@@ -2,7 +2,14 @@
   "name": "scanpro_backend",
   "version": "1.0.0",
   "description": "Production-ready Document Scanner Backend API for ScanPro",
-  "keywords": ["scanpro", "scanner", "pdf", "express", "prisma", "typescript"],
+  "keywords": [
+    "scanpro",
+    "scanner",
+    "pdf",
+    "express",
+    "prisma",
+    "typescript"
+  ],
   "license": "ISC",
   "author": "",
   "type": "module",
@@ -26,6 +33,7 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
+    "swagger-ui-express": "^5.0.1",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -34,6 +42,7 @@
     "@types/express": "^5.0.0",
     "@types/jsonwebtoken": "^9.0.8",
     "@types/node": "^22.13.4",
+    "@types/swagger-ui-express": "^4.1.8",
     "prisma": "^6.4.0",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"

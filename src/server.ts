@@ -5,6 +5,7 @@ const app = createApp();
 
 const server = app.listen(env.PORT, () => {
   console.log(`🚀 ScanPro Backend Server running in [${env.NODE_ENV}] mode on port ${env.PORT}`);
+  console.log(`📚 Swagger API Docs available at: http://localhost:${env.PORT}/docs`);
   console.log(`📡 Health check available at: http://localhost:${env.PORT}/api/v1/health`);
 });
 
