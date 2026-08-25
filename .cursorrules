@@ -1,0 +1,9 @@
+# ScanPro Backend AI Rules & Guidelines
+
+- Follow Modular Layered Architecture: `src/modules/<name>/(controller|dto|repository|routes|service|validation)`.
+- Use TypeScript with strict types. Run `npx tsc --noEmit` to verify type checks.
+- All requests MUST be validated with Zod schemas in `*.validation.ts`.
+- Protected routes MUST use `authenticate` middleware.
+- Database queries MUST use Prisma Client with transactions for multi-record operations.
+- Always return standard response JSON: `{ success: boolean, message?: string, data?: any, error?: any }`.
+- NEVER rewrite or refactor unrelated working endpoints or architecture.
