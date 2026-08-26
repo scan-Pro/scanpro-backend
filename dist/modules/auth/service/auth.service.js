@@ -78,7 +78,7 @@ export class AuthService {
             expiresIn: env.JWT_REFRESH_EXPIRES_IN,
         });
         const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiry for refresh token
+        expiresAt.setDate(expiresAt.getDate() + 90); // 90 days expiry for refresh token
         await this.authRepository.saveRefreshToken(userId, refreshToken, expiresAt);
         return {
             accessToken,
