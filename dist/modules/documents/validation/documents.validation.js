@@ -61,6 +61,8 @@ export const searchDocumentsSchema = z.object({
         q: z.string().optional().default(''),
         folderId: z.string().uuid().optional(),
         favorite: z.enum(['true', 'false']).optional(),
+        page: z.string().regex(/^\d+$/).transform(Number).optional().default('1'),
+        limit: z.string().regex(/^\d+$/).transform(Number).optional().default('20'),
     }),
 });
 //# sourceMappingURL=documents.validation.js.map

@@ -33,25 +33,35 @@ export class DocumentsRepository {
         });
     }
     async findUserDocuments(userId, filters) {
-        return prisma.document.findMany({
-            where: {
-                userId,
-                ...(filters?.folderId ? { folderId: filters.folderId } : {}),
-                ...(filters?.isFavorite !== undefined ? { isFavorite: filters.isFavorite } : {}),
-                ...(filters?.q
-                    ? {
-                        title: {
-                            contains: filters.q,
-                        },
-                    }
-                    : {}),
-            },
-            include: {
-                folder: { select: { id: true, name: true } },
-                pages: { orderBy: { pageOrder: 'asc' } },
-            },
-            orderBy: { createdAt: 'desc' },
-        });
+        const where = {
+            userId,
+            ...(filters?.folderId ? { folderId: filters.folderId } : {}),
+            ...(filters?.isFavorite !== undefined ? { isFavorite: filters.isFavorite } : {}),
+            ...(filters?.q
+                ? {
+                    title: {
+                        contains: filters.q,
+                    },
+                }
+                : {}),
+        };
+        const page = filters?.page && filters.page > 0 ? filters.page : 1;
+        const limit = filters?.limit && filters.limit > 0 ? filters.limit : 20;
+        const skip = (page - 1) * limit;
+        const [totalCount, documents] = await prisma.$transaction([
+            prisma.document.count({ where }),
+            prisma.document.findMany({
+                where,
+                include: {
+                    folder: { select: { id: true, name: true } },
+                    pages: { orderBy: { pageOrder: 'asc' } },
+                },
+                orderBy: { createdAt: 'desc' },
+                skip,
+                take: limit,
+            }),
+        ]);
+        return { documents, totalCount };
     }
     async findById(id, userId) {
         return prisma.document.findFirst({

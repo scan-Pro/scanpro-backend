@@ -178,14 +178,8 @@ export declare const swaggerSpec: {
                         type: string;
                         example: number;
                     };
-                    localPath: {
+                    imageUrl: {
                         type: string;
-                        nullable: boolean;
-                        example: string;
-                    };
-                    remoteUrl: {
-                        type: string;
-                        nullable: boolean;
                         example: string;
                     };
                     thumbnailUrl: {
@@ -247,6 +241,11 @@ export declare const swaggerSpec: {
                     isFavorite: {
                         type: string;
                         example: boolean;
+                    };
+                    syncStatus: {
+                        type: string;
+                        enum: string[];
+                        example: string;
                     };
                     createdAt: {
                         type: string;
@@ -343,13 +342,17 @@ export declare const swaggerSpec: {
                 type: string;
                 required: string[];
                 properties: {
+                    id: {
+                        type: string;
+                        format: string;
+                        description: string;
+                    };
                     pageOrder: {
                         type: string;
                         example: number;
                     };
-                    remoteUrl: {
+                    imageUrl: {
                         type: string;
-                        nullable: boolean;
                         example: string;
                     };
                     thumbnailUrl: {
@@ -863,6 +866,40 @@ export declare const swaggerSpec: {
                         };
                     };
                     400: {
+                        description: string;
+                    };
+                };
+            };
+        };
+        '/users/account': {
+            delete: {
+                tags: string[];
+                summary: string;
+                security: {
+                    bearerAuth: never[];
+                }[];
+                responses: {
+                    200: {
+                        description: string;
+                        content: {
+                            'application/json': {
+                                schema: {
+                                    type: string;
+                                    properties: {
+                                        success: {
+                                            type: string;
+                                            example: boolean;
+                                        };
+                                        message: {
+                                            type: string;
+                                            example: string;
+                                        };
+                                    };
+                                };
+                            };
+                        };
+                    };
+                    401: {
                         description: string;
                     };
                 };

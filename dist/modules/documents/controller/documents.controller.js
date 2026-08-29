@@ -18,13 +18,17 @@ export class DocumentsController {
     getDocuments = async (req, res, next) => {
         try {
             const userId = req.user.userId;
-            const { q, folderId, favorite } = req.query;
-            const documents = await this.documentsService.getDocuments(userId, {
+            const { q, folderId, favorite, page, limit } = req.query;
+            const pageNum = page !== undefined ? Number(page) : 1;
+            const limitNum = limit !== undefined ? Number(limit) : 20;
+            const result = await this.documentsService.getDocuments(userId, {
                 q,
                 folderId,
                 isFavorite: favorite !== undefined ? favorite === 'true' : undefined,
+                page: pageNum,
+                limit: limitNum,
             });
-            ApiResponse.success(res, 'Documents fetched successfully', documents);
+            ApiResponse.success(res, 'Documents fetched successfully', result);
         }
         catch (error) {
             next(error);

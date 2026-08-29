@@ -1,6 +1,6 @@
 import { prisma } from '../../../config/database.js';
 import { Document, DocumentPage } from '@prisma/client';
-import { CreateDocumentDto, UpdateDocumentDto } from '../dto/documents.dto.js';
+import { CreateDocumentDto, UpdateDocumentDto, QueryDocumentsDto } from '../dto/documents.dto.js';
 
 export type DocumentWithRelations = Document & {
   folder: { id: string; name: string } | null;
@@ -43,31 +43,40 @@ export class DocumentsRepository {
 
   async findUserDocuments(
     userId: string,
-    filters?: {
-      q?: string;
-      folderId?: string;
-      isFavorite?: boolean;
-    }
-  ): Promise<DocumentWithRelations[]> {
-    return prisma.document.findMany({
-      where: {
-        userId,
-        ...(filters?.folderId ? { folderId: filters.folderId } : {}),
-        ...(filters?.isFavorite !== undefined ? { isFavorite: filters.isFavorite } : {}),
-        ...(filters?.q
-          ? {
-              title: {
-                contains: filters.q,
-              },
-            }
-          : {}),
-      },
-      include: {
-        folder: { select: { id: true, name: true } },
-        pages: { orderBy: { pageOrder: 'asc' } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    filters?: QueryDocumentsDto
+  ): Promise<{ documents: DocumentWithRelations[]; totalCount: number }> {
+    const where = {
+      userId,
+      ...(filters?.folderId ? { folderId: filters.folderId } : {}),
+      ...(filters?.isFavorite !== undefined ? { isFavorite: filters.isFavorite } : {}),
+      ...(filters?.q
+        ? {
+            title: {
+              contains: filters.q,
+            },
+          }
+        : {}),
+    };
+
+    const page = filters?.page && filters.page > 0 ? filters.page : 1;
+    const limit = filters?.limit && filters.limit > 0 ? filters.limit : 20;
+    const skip = (page - 1) * limit;
+
+    const [totalCount, documents] = await prisma.$transaction([
+      prisma.document.count({ where }),
+      prisma.document.findMany({
+        where,
+        include: {
+          folder: { select: { id: true, name: true } },
+          pages: { orderBy: { pageOrder: 'asc' } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+    ]);
+
+    return { documents, totalCount };
   }
 
   async findById(id: string, userId: string): Promise<DocumentWithRelations | null> {

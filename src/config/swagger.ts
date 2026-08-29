@@ -35,12 +35,20 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
   },
   servers: [
     {
+      url: '/api/v1',
+      description: 'Current Host (Recommended for Swagger UI & Ngrok)',
+    },
+    {
       url: `http://localhost:${env.PORT}/api/v1`,
       description: 'Localhost Server (Default / iOS Simulator)',
     },
     {
       url: `http://10.0.2.2:${env.PORT}/api/v1`,
       description: 'Android Emulator Loopback',
+    },
+    {
+      url: 'https://encircle-kudos-vineyard.ngrok-free.dev/api/v1',
+      description: 'Ngrok Public Tunnel Server',
     },
   ],
   tags: [
@@ -129,10 +137,9 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
           id: { type: 'string', format: 'uuid', example: 'a1b2c3d4-e5f6-7a8b-9c0d-1e2f3a4b5c6d' },
           documentId: { type: 'string', format: 'uuid' },
           pageOrder: { type: 'integer', example: 0 },
-          localPath: { type: 'string', nullable: true, example: '/data/user/0/com.example.scanpro/app_flutter/pages/page_1.jpg' },
-          remoteUrl: { type: 'string', nullable: true, example: 'https://s3.amazonaws.com/scanpro/pages/p1.jpg' },
+          imageUrl: { type: 'string', example: 'https://s3.amazonaws.com/scanpro/pages/p1.jpg' },
           thumbnailUrl: { type: 'string', nullable: true, example: 'https://s3.amazonaws.com/scanpro/thumbs/p1.jpg' },
-          filter: { type: 'string', enum: ['ORIGINAL', 'MAGIC_COLOR', 'GRAYSCALE', 'BLACK_WHITE', 'ENHANCED'], example: 'MAGIC_COLOR' },
+          filter: { type: 'string', enum: ['ORIGINAL', 'AUTO', 'MAGIC_COLOR', 'GRAYSCALE', 'BLACK_AND_WHITE'], example: 'MAGIC_COLOR' },
           rotation: { type: 'integer', example: 0 },
           createdAt: { type: 'string', format: 'date-time' },
         },
@@ -148,6 +155,7 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
           pdfUrl: { type: 'string', nullable: true, example: 'https://s3.amazonaws.com/scanpro/pdfs/Scan_20260825_001.pdf' },
           pageCount: { type: 'integer', example: 2 },
           isFavorite: { type: 'boolean', example: false },
+          syncStatus: { type: 'string', enum: ['PENDING', 'SYNCED', 'FAILED'], example: 'SYNCED' },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
           pages: {
@@ -201,12 +209,13 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
       },
       CreateDocumentPageDto: {
         type: 'object',
-        required: ['pageOrder'],
+        required: ['pageOrder', 'imageUrl'],
         properties: {
+          id: { type: 'string', format: 'uuid', description: 'Optional local page ID' },
           pageOrder: { type: 'integer', example: 0 },
-          remoteUrl: { type: 'string', nullable: true, example: 'https://s3.amazonaws.com/scanpro/pages/page_0.jpg' },
+          imageUrl: { type: 'string', example: 'https://s3.amazonaws.com/scanpro/pages/page_0.jpg' },
           thumbnailUrl: { type: 'string', nullable: true, example: 'https://s3.amazonaws.com/scanpro/thumbs/page_0.jpg' },
-          filter: { type: 'string', enum: ['ORIGINAL', 'MAGIC_COLOR', 'GRAYSCALE', 'BLACK_WHITE', 'ENHANCED'], default: 'ORIGINAL' },
+          filter: { type: 'string', enum: ['ORIGINAL', 'AUTO', 'MAGIC_COLOR', 'GRAYSCALE', 'BLACK_AND_WHITE'], default: 'ORIGINAL' },
           rotation: { type: 'integer', default: 0, example: 0 },
         },
       },
@@ -517,6 +526,30 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
             },
           },
           400: { description: 'Incorrect current password or validation error' },
+        },
+      },
+    },
+    '/users/account': {
+      delete: {
+        tags: ['Users'],
+        summary: 'Permanently delete user account and all associated documents & data',
+        security: [{ bearerAuth: [] }],
+        responses: {
+          200: {
+            description: 'Account deleted successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Account deleted successfully' },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: 'Unauthorized or token expired' },
         },
       },
     },

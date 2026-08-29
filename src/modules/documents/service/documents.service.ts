@@ -1,5 +1,5 @@
 import { DocumentsRepository, DocumentWithRelations } from '../repository/documents.repository.js';
-import { CreateDocumentDto, UpdateDocumentDto } from '../dto/documents.dto.js';
+import { CreateDocumentDto, UpdateDocumentDto, QueryDocumentsDto, PaginatedDocumentsResult } from '../dto/documents.dto.js';
 import { NotFoundError } from '../../../common/errors/app-error.js';
 import { UploadsService } from '../../uploads/service/uploads.service.js';
 
@@ -15,13 +15,30 @@ export class DocumentsService {
 
   async getDocuments(
     userId: string,
-    filters?: {
-      q?: string;
-      folderId?: string;
-      isFavorite?: boolean;
-    }
-  ): Promise<DocumentWithRelations[]> {
-    return this.documentsRepository.findUserDocuments(userId, filters);
+    filters?: QueryDocumentsDto
+  ): Promise<PaginatedDocumentsResult<DocumentWithRelations>> {
+    const page = filters?.page && filters.page > 0 ? filters.page : 1;
+    const limit = filters?.limit && filters.limit > 0 ? filters.limit : 20;
+
+    const { documents, totalCount } = await this.documentsRepository.findUserDocuments(userId, {
+      ...filters,
+      page,
+      limit,
+    });
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    return {
+      documents,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
   async getDocumentById(id: string, userId: string): Promise<DocumentWithRelations> {

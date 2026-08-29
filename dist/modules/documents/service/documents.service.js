@@ -12,7 +12,25 @@ export class DocumentsService {
         return this.documentsRepository.createDocument(userId, dto);
     }
     async getDocuments(userId, filters) {
-        return this.documentsRepository.findUserDocuments(userId, filters);
+        const page = filters?.page && filters.page > 0 ? filters.page : 1;
+        const limit = filters?.limit && filters.limit > 0 ? filters.limit : 20;
+        const { documents, totalCount } = await this.documentsRepository.findUserDocuments(userId, {
+            ...filters,
+            page,
+            limit,
+        });
+        const totalPages = Math.ceil(totalCount / limit);
+        return {
+            documents,
+            pagination: {
+                page,
+                limit,
+                totalCount,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1,
+            },
+        };
     }
     async getDocumentById(id, userId) {
         const document = await this.documentsRepository.findById(id, userId);

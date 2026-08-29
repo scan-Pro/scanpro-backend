@@ -7,7 +7,7 @@ export declare const createDocumentPageSchema: z.ZodObject<{
     filter: z.ZodDefault<z.ZodOptional<z.ZodEnum<["ORIGINAL", "AUTO", "MAGIC_COLOR", "GRAYSCALE", "BLACK_AND_WHITE"]>>>;
     rotation: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
 }, "strip", z.ZodTypeAny, {
-    filter: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE";
+    filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
     pageOrder: number;
     imageUrl: string;
     rotation: number;
@@ -16,7 +16,7 @@ export declare const createDocumentPageSchema: z.ZodObject<{
 }, {
     pageOrder: number;
     imageUrl: string;
-    filter?: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE" | undefined;
+    filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
     id?: string | undefined;
     thumbnailUrl?: string | undefined;
     rotation?: number | undefined;
@@ -40,7 +40,7 @@ export declare const createDocumentSchema: z.ZodObject<{
             filter: z.ZodDefault<z.ZodOptional<z.ZodEnum<["ORIGINAL", "AUTO", "MAGIC_COLOR", "GRAYSCALE", "BLACK_AND_WHITE"]>>>;
             rotation: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
         }, "strip", z.ZodTypeAny, {
-            filter: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE";
+            filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
             pageOrder: number;
             imageUrl: string;
             rotation: number;
@@ -49,7 +49,7 @@ export declare const createDocumentSchema: z.ZodObject<{
         }, {
             pageOrder: number;
             imageUrl: string;
-            filter?: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE" | undefined;
+            filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
             id?: string | undefined;
             thumbnailUrl?: string | undefined;
             rotation?: number | undefined;
@@ -59,7 +59,7 @@ export declare const createDocumentSchema: z.ZodObject<{
         isFavorite: boolean;
         pageCount: number;
         pages?: {
-            filter: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE";
+            filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
             pageOrder: number;
             imageUrl: string;
             rotation: number;
@@ -78,7 +78,7 @@ export declare const createDocumentSchema: z.ZodObject<{
         pages?: {
             pageOrder: number;
             imageUrl: string;
-            filter?: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE" | undefined;
+            filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
             id?: string | undefined;
             thumbnailUrl?: string | undefined;
             rotation?: number | undefined;
@@ -97,7 +97,7 @@ export declare const createDocumentSchema: z.ZodObject<{
         isFavorite: boolean;
         pageCount: number;
         pages?: {
-            filter: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE";
+            filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
             pageOrder: number;
             imageUrl: string;
             rotation: number;
@@ -118,7 +118,7 @@ export declare const createDocumentSchema: z.ZodObject<{
         pages?: {
             pageOrder: number;
             imageUrl: string;
-            filter?: "ORIGINAL" | "MAGIC_COLOR" | "GRAYSCALE" | "AUTO" | "BLACK_AND_WHITE" | undefined;
+            filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
             id?: string | undefined;
             thumbnailUrl?: string | undefined;
             rotation?: number | undefined;
@@ -269,23 +269,33 @@ export declare const searchDocumentsSchema: z.ZodObject<{
         q: z.ZodDefault<z.ZodOptional<z.ZodString>>;
         folderId: z.ZodOptional<z.ZodString>;
         favorite: z.ZodOptional<z.ZodEnum<["true", "false"]>>;
+        page: z.ZodDefault<z.ZodOptional<z.ZodEffects<z.ZodString, number, string>>>;
+        limit: z.ZodDefault<z.ZodOptional<z.ZodEffects<z.ZodString, number, string>>>;
     }, "strip", z.ZodTypeAny, {
+        limit: number;
+        page: number;
         q: string;
         folderId?: string | undefined;
         favorite?: "true" | "false" | undefined;
     }, {
+        limit?: string | undefined;
+        page?: string | undefined;
         folderId?: string | undefined;
         q?: string | undefined;
         favorite?: "true" | "false" | undefined;
     }>;
 }, "strip", z.ZodTypeAny, {
     query: {
+        limit: number;
+        page: number;
         q: string;
         folderId?: string | undefined;
         favorite?: "true" | "false" | undefined;
     };
 }, {
     query: {
+        limit?: string | undefined;
+        page?: string | undefined;
         folderId?: string | undefined;
         q?: string | undefined;
         favorite?: "true" | "false" | undefined;

@@ -55,3 +55,25 @@ export interface SyncDocumentItemDto {
 export interface BatchSyncDocumentsDto {
   documents: SyncDocumentItemDto[];
 }
+
+export interface QueryDocumentsDto {
+  q?: string;
+  folderId?: string;
+  isFavorite?: boolean;
+  page?: number;
+  limit?: number;
+}
+
+export interface PaginationMetaDto {
+  page: number;
+  limit: number;
+  totalCount: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
+export interface PaginatedDocumentsResult<T> {
+  documents: T[];
+  pagination: PaginationMetaDto;
+}
