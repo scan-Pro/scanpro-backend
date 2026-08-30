@@ -1,12 +1,15 @@
 import { DocumentsRepository } from '../repository/documents.repository.js';
 import { NotFoundError } from '../../../common/errors/app-error.js';
 import { UploadsService } from '../../uploads/service/uploads.service.js';
+import { FoldersRepository } from '../../folders/repository/folders.repository.js';
 export class DocumentsService {
     documentsRepository;
     uploadsService;
-    constructor(documentsRepository = new DocumentsRepository(), uploadsService = new UploadsService()) {
+    foldersRepository;
+    constructor(documentsRepository = new DocumentsRepository(), uploadsService = new UploadsService(), foldersRepository = new FoldersRepository()) {
         this.documentsRepository = documentsRepository;
         this.uploadsService = uploadsService;
+        this.foldersRepository = foldersRepository;
     }
     async createDocument(userId, dto) {
         return this.documentsRepository.createDocument(userId, dto);
@@ -72,6 +75,12 @@ export class DocumentsService {
     }
     async moveToFolder(id, userId, folderId) {
         await this.getDocumentById(id, userId);
+        if (folderId) {
+            const folder = await this.foldersRepository.findById(folderId, userId);
+            if (!folder) {
+                throw new NotFoundError('Target folder not found', 'FOLDER_NOT_FOUND');
+            }
+        }
         return this.documentsRepository.moveToFolder(id, userId, folderId);
     }
 }

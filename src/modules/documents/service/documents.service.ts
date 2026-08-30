@@ -2,11 +2,13 @@ import { DocumentsRepository, DocumentWithRelations } from '../repository/docume
 import { CreateDocumentDto, UpdateDocumentDto, QueryDocumentsDto, PaginatedDocumentsResult } from '../dto/documents.dto.js';
 import { NotFoundError } from '../../../common/errors/app-error.js';
 import { UploadsService } from '../../uploads/service/uploads.service.js';
+import { FoldersRepository } from '../../folders/repository/folders.repository.js';
 
 export class DocumentsService {
   constructor(
     private readonly documentsRepository: DocumentsRepository = new DocumentsRepository(),
-    private readonly uploadsService: UploadsService = new UploadsService()
+    private readonly uploadsService: UploadsService = new UploadsService(),
+    private readonly foldersRepository: FoldersRepository = new FoldersRepository()
   ) {}
 
   async createDocument(userId: string, dto: CreateDocumentDto): Promise<DocumentWithRelations> {
@@ -90,6 +92,12 @@ export class DocumentsService {
 
   async moveToFolder(id: string, userId: string, folderId: string | null): Promise<DocumentWithRelations> {
     await this.getDocumentById(id, userId);
+    if (folderId) {
+      const folder = await this.foldersRepository.findById(folderId, userId);
+      if (!folder) {
+        throw new NotFoundError('Target folder not found', 'FOLDER_NOT_FOUND');
+      }
+    }
     return this.documentsRepository.moveToFolder(id, userId, folderId);
   }
 }

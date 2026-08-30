@@ -10,7 +10,14 @@ export class FoldersService {
     const trimmedName = dto.name.trim();
     const existing = await this.foldersRepository.findByName(userId, trimmedName);
     if (existing) {
-      throw new ConflictError('A folder with this name already exists', 'FOLDER_ALREADY_EXISTS');
+      return existing;
+    }
+
+    if (dto.id) {
+      const existingById = await this.foldersRepository.findById(dto.id, userId);
+      if (existingById) {
+        return existingById;
+      }
     }
 
     return this.foldersRepository.createFolder(userId, trimmedName, dto.id);

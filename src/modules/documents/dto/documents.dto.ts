@@ -30,6 +30,7 @@ export interface UpdateDocumentDto {
   pdfUrl?: string;
   pageCount?: number;
   isFavorite?: boolean;
+  pages?: CreateDocumentPageDto[];
 }
 
 export interface SyncDocumentItemDto {

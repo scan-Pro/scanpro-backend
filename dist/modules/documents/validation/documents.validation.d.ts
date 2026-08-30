@@ -147,9 +147,39 @@ export declare const updateDocumentSchema: z.ZodObject<{
         pdfUrl: z.ZodNullable<z.ZodOptional<z.ZodString>>;
         pageCount: z.ZodOptional<z.ZodNumber>;
         isFavorite: z.ZodOptional<z.ZodBoolean>;
+        pages: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            id: z.ZodOptional<z.ZodString>;
+            pageOrder: z.ZodNumber;
+            imageUrl: z.ZodString;
+            thumbnailUrl: z.ZodOptional<z.ZodString>;
+            filter: z.ZodDefault<z.ZodOptional<z.ZodEnum<["ORIGINAL", "AUTO", "MAGIC_COLOR", "GRAYSCALE", "BLACK_AND_WHITE"]>>>;
+            rotation: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+        }, "strip", z.ZodTypeAny, {
+            filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
+            pageOrder: number;
+            imageUrl: string;
+            rotation: number;
+            id?: string | undefined;
+            thumbnailUrl?: string | undefined;
+        }, {
+            pageOrder: number;
+            imageUrl: string;
+            filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
+            id?: string | undefined;
+            thumbnailUrl?: string | undefined;
+            rotation?: number | undefined;
+        }>, "many">>;
     }, "strip", z.ZodTypeAny, {
         title?: string | undefined;
         isFavorite?: boolean | undefined;
+        pages?: {
+            filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
+            pageOrder: number;
+            imageUrl: string;
+            rotation: number;
+            id?: string | undefined;
+            thumbnailUrl?: string | undefined;
+        }[] | undefined;
         folderId?: string | null | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
@@ -157,6 +187,14 @@ export declare const updateDocumentSchema: z.ZodObject<{
     }, {
         title?: string | undefined;
         isFavorite?: boolean | undefined;
+        pages?: {
+            pageOrder: number;
+            imageUrl: string;
+            filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
+            id?: string | undefined;
+            thumbnailUrl?: string | undefined;
+            rotation?: number | undefined;
+        }[] | undefined;
         folderId?: string | null | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
@@ -169,6 +207,14 @@ export declare const updateDocumentSchema: z.ZodObject<{
     body: {
         title?: string | undefined;
         isFavorite?: boolean | undefined;
+        pages?: {
+            filter: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE";
+            pageOrder: number;
+            imageUrl: string;
+            rotation: number;
+            id?: string | undefined;
+            thumbnailUrl?: string | undefined;
+        }[] | undefined;
         folderId?: string | null | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
@@ -181,6 +227,14 @@ export declare const updateDocumentSchema: z.ZodObject<{
     body: {
         title?: string | undefined;
         isFavorite?: boolean | undefined;
+        pages?: {
+            pageOrder: number;
+            imageUrl: string;
+            filter?: "ORIGINAL" | "AUTO" | "MAGIC_COLOR" | "GRAYSCALE" | "BLACK_AND_WHITE" | undefined;
+            id?: string | undefined;
+            thumbnailUrl?: string | undefined;
+            rotation?: number | undefined;
+        }[] | undefined;
         folderId?: string | null | undefined;
         thumbnailUrl?: string | null | undefined;
         pdfUrl?: string | null | undefined;
@@ -243,11 +297,11 @@ export declare const moveFolderSchema: z.ZodObject<{
         id: string;
     }>;
     body: z.ZodObject<{
-        folderId: z.ZodNullable<z.ZodString>;
+        folderId: z.ZodEffects<z.ZodOptional<z.ZodNullable<z.ZodUnion<[z.ZodString, z.ZodLiteral<"">]>>>, string | null, string | null | undefined>;
     }, "strip", z.ZodTypeAny, {
         folderId: string | null;
     }, {
-        folderId: string | null;
+        folderId?: string | null | undefined;
     }>;
 }, "strip", z.ZodTypeAny, {
     params: {
@@ -261,7 +315,7 @@ export declare const moveFolderSchema: z.ZodObject<{
         id: string;
     };
     body: {
-        folderId: string | null;
+        folderId?: string | null | undefined;
     };
 }>;
 export declare const searchDocumentsSchema: z.ZodObject<{

@@ -33,6 +33,7 @@ export const updateDocumentSchema = z.object({
         pdfUrl: z.string().optional().nullable(),
         pageCount: z.number().int().min(1).optional(),
         isFavorite: z.boolean().optional(),
+        pages: z.array(createDocumentPageSchema).optional(),
     }),
 });
 export const documentIdParamSchema = z.object({
@@ -53,7 +54,11 @@ export const moveFolderSchema = z.object({
         id: z.string().uuid('Invalid document ID format'),
     }),
     body: z.object({
-        folderId: z.string().uuid().nullable(),
+        folderId: z
+            .union([z.string().uuid(), z.literal('')])
+            .nullable()
+            .optional()
+            .transform((val) => (!val || val === '' ? null : val)),
     }),
 });
 export const searchDocumentsSchema = z.object({

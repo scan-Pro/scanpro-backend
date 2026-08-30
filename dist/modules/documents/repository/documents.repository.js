@@ -1,6 +1,22 @@
 import { prisma } from '../../../config/database.js';
 export class DocumentsRepository {
     async createDocument(userId, data) {
+        if (data.id) {
+            const existing = await prisma.document.findFirst({
+                where: { id: data.id, userId },
+            });
+            if (existing) {
+                return this.updateDocument(data.id, userId, {
+                    title: data.title,
+                    folderId: data.folderId,
+                    thumbnailUrl: data.thumbnailUrl,
+                    pdfUrl: data.pdfUrl,
+                    pageCount: data.pages ? data.pages.length : (data.pageCount || 1),
+                    isFavorite: data.isFavorite,
+                    pages: data.pages,
+                });
+            }
+        }
         return prisma.document.create({
             data: {
                 ...(data.id ? { id: data.id } : {}),
@@ -72,20 +88,45 @@ export class DocumentsRepository {
         });
     }
     async updateDocument(id, userId, data) {
-        return prisma.document.update({
-            where: { id },
-            data: {
-                ...(data.title !== undefined ? { title: data.title } : {}),
-                ...(data.folderId !== undefined ? { folderId: data.folderId } : {}),
-                ...(data.thumbnailUrl !== undefined ? { thumbnailUrl: data.thumbnailUrl } : {}),
-                ...(data.pdfUrl !== undefined ? { pdfUrl: data.pdfUrl } : {}),
-                ...(data.pageCount !== undefined ? { pageCount: data.pageCount } : {}),
-                ...(data.isFavorite !== undefined ? { isFavorite: data.isFavorite } : {}),
-            },
-            include: {
-                folder: { select: { id: true, name: true } },
-                pages: { orderBy: { pageOrder: 'asc' } },
-            },
+        return prisma.$transaction(async (tx) => {
+            if (data.pages !== undefined) {
+                await tx.documentPage.deleteMany({
+                    where: { documentId: id },
+                });
+                if (data.pages.length > 0) {
+                    await tx.documentPage.createMany({
+                        data: data.pages.map((p, idx) => ({
+                            ...(p.id ? { id: p.id } : {}),
+                            documentId: id,
+                            pageOrder: p.pageOrder ?? idx,
+                            imageUrl: p.imageUrl,
+                            thumbnailUrl: p.thumbnailUrl || null,
+                            filter: p.filter || 'ORIGINAL',
+                            rotation: p.rotation || 0,
+                        })),
+                    });
+                }
+            }
+            return tx.document.update({
+                where: { id },
+                data: {
+                    ...(data.title !== undefined ? { title: data.title } : {}),
+                    ...(data.folderId !== undefined ? { folderId: data.folderId } : {}),
+                    ...(data.thumbnailUrl !== undefined ? { thumbnailUrl: data.thumbnailUrl } : {}),
+                    ...(data.pdfUrl !== undefined ? { pdfUrl: data.pdfUrl } : {}),
+                    ...(data.pageCount !== undefined
+                        ? { pageCount: data.pageCount }
+                        : data.pages !== undefined
+                            ? { pageCount: data.pages.length }
+                            : {}),
+                    ...(data.isFavorite !== undefined ? { isFavorite: data.isFavorite } : {}),
+                    updatedAt: new Date(),
+                },
+                include: {
+                    folder: { select: { id: true, name: true } },
+                    pages: { orderBy: { pageOrder: 'asc' } },
+                },
+            });
         });
     }
     async deleteDocument(id, userId) {
