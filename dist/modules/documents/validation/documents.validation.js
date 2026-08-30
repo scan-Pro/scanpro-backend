@@ -1,7 +1,7 @@
 import { z } from 'zod';
 const filterTypeEnum = z.enum(['ORIGINAL', 'AUTO', 'MAGIC_COLOR', 'GRAYSCALE', 'BLACK_AND_WHITE']);
 export const createDocumentPageSchema = z.object({
-    id: z.string().uuid().optional(),
+    id: z.string().min(1).optional(),
     pageOrder: z.number().int().min(0),
     imageUrl: z.string().min(1, 'Image URL cannot be empty'),
     thumbnailUrl: z.string().optional(),
@@ -10,9 +10,9 @@ export const createDocumentPageSchema = z.object({
 });
 export const createDocumentSchema = z.object({
     body: z.object({
-        id: z.string().uuid().optional(),
+        id: z.string().min(1).optional(),
         title: z.string({ required_error: 'Title is required' }).trim().min(1, 'Title cannot be empty').max(255),
-        folderId: z.string().uuid().optional().nullable(),
+        folderId: z.string().min(1).optional().nullable(),
         thumbnailUrl: z.string().optional().nullable(),
         pdfUrl: z.string().optional().nullable(),
         pageCount: z.number().int().min(1).optional().default(1),
@@ -24,11 +24,11 @@ export const createDocumentSchema = z.object({
 });
 export const updateDocumentSchema = z.object({
     params: z.object({
-        id: z.string().uuid('Invalid document ID format'),
+        id: z.string().min(1, 'Invalid document ID format'),
     }),
     body: z.object({
         title: z.string().trim().min(1, 'Title cannot be empty').max(255).optional(),
-        folderId: z.string().uuid().optional().nullable(),
+        folderId: z.string().min(1).optional().nullable(),
         thumbnailUrl: z.string().optional().nullable(),
         pdfUrl: z.string().optional().nullable(),
         pageCount: z.number().int().min(1).optional(),
