@@ -4,7 +4,7 @@ import { CreateDocumentDto, UpdateDocumentDto, QueryDocumentsDto } from '../dto/
 
 export type DocumentWithRelations = Document & {
   folder: { id: string; name: string } | null;
-  pages: DocumentPage[];
+  pages?: DocumentPage[];
 };
 
 export class DocumentsRepository {
@@ -68,7 +68,6 @@ export class DocumentsRepository {
         where,
         include: {
           folder: { select: { id: true, name: true } },
-          pages: { orderBy: { pageOrder: 'asc' } },
         },
         orderBy: { createdAt: 'desc' },
         skip,

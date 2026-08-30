@@ -51,11 +51,13 @@ export class DocumentsService {
             urlsToDelete.push(document.thumbnailUrl);
         if (document.pdfUrl)
             urlsToDelete.push(document.pdfUrl);
-        for (const page of document.pages) {
-            if (page.imageUrl)
-                urlsToDelete.push(page.imageUrl);
-            if (page.thumbnailUrl)
-                urlsToDelete.push(page.thumbnailUrl);
+        if (document.pages) {
+            for (const page of document.pages) {
+                if (page.imageUrl)
+                    urlsToDelete.push(page.imageUrl);
+                if (page.thumbnailUrl)
+                    urlsToDelete.push(page.thumbnailUrl);
+            }
         }
         // Delete DB record first (fast), then clean up B2 files in background
         await this.documentsRepository.deleteDocument(id, userId);

@@ -54,7 +54,6 @@ export class DocumentsRepository {
                 where,
                 include: {
                     folder: { select: { id: true, name: true } },
-                    pages: { orderBy: { pageOrder: 'asc' } },
                 },
                 orderBy: { createdAt: 'desc' },
                 skip,

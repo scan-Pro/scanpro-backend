@@ -5,7 +5,7 @@ export type DocumentWithRelations = Document & {
         id: string;
         name: string;
     } | null;
-    pages: DocumentPage[];
+    pages?: DocumentPage[];
 };
 export declare class DocumentsRepository {
     createDocument(userId: string, data: CreateDocumentDto): Promise<DocumentWithRelations>;
