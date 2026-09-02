@@ -1501,7 +1501,7 @@ export declare const swaggerSpec: {
                                                     type: string;
                                                     example: string;
                                                 };
-                                                publicUrl: {
+                                                fileUrl: {
                                                     type: string;
                                                     example: string;
                                                 };

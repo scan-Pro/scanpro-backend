@@ -1,4 +1,5 @@
 import { DocumentsRepository, DocumentWithRelations } from '../repository/documents.repository.js';
+import { PendingDeletionRepository } from '../repository/pending-deletion.repository.js';
 import { CreateDocumentDto, UpdateDocumentDto, QueryDocumentsDto, PaginatedDocumentsResult, CreateDocumentPageDto } from '../dto/documents.dto.js';
 import { NotFoundError } from '../../../common/errors/app-error.js';
 import { assertOwnStorageUrl } from '../../../common/utils/storage-url.util.js';
@@ -9,7 +10,8 @@ export class DocumentsService {
   constructor(
     private readonly documentsRepository: DocumentsRepository = new DocumentsRepository(),
     private readonly uploadsService: UploadsService = new UploadsService(),
-    private readonly foldersRepository: FoldersRepository = new FoldersRepository()
+    private readonly foldersRepository: FoldersRepository = new FoldersRepository(),
+    private readonly pendingDeletionRepository: PendingDeletionRepository = new PendingDeletionRepository()
   ) {}
 
   async createDocument(userId: string, dto: CreateDocumentDto): Promise<DocumentWithRelations> {
@@ -82,12 +84,72 @@ export class DocumentsService {
     // Delete DB record first (fast), then clean up B2 files in background
     await this.documentsRepository.deleteDocument(id, userId);
 
-    // Fire-and-forget B2 cleanup — failures are logged but don't break the response
+    // Persist pending deletions so failed B2 deletes can be retried later
+    const cloudUrls = urlsToDelete.filter((u) => u.startsWith('http'));
+    if (cloudUrls.length > 0) {
+      await this.pendingDeletionRepository.createMany(
+        cloudUrls.map((url) => ({ fileUrl: url, documentId: id, userId }))
+      );
+    }
+
+    // Fire-and-forget B2 cleanup — failures are logged and recorded for retry
+    this._cleanupB2Files(cloudUrls, id);
+  }
+
+  /**
+   * Attempts to delete B2 files, logging failures and updating the
+   * pending-deletion records so failed deletes can be retried later.
+   */
+  private _cleanupB2Files(urls: string[], documentId: string): void {
     Promise.allSettled(
-      urlsToDelete
-        .filter((u) => u.startsWith('http'))
-        .map((url) => this.uploadsService.deleteFileByUrl(url))
-    ).catch(() => {});
+      urls.map((url) => this.uploadsService.deleteFileByUrl(url))
+    ).then((results) => {
+      const failures = results
+        .map((r, i) => ({ result: r, url: urls[i] }))
+        .filter(({ result }) => result.status === 'rejected');
+
+      if (failures.length > 0) {
+        console.warn(
+          `[DocumentsService] ${failures.length}/${urls.length} B2 deletions failed for document ${documentId}:`,
+          failures.map(({ url, result }) => ({
+            url,
+            error: (result as PromiseRejectedResult).reason?.message ?? 'Unknown error',
+          }))
+        );
+      }
+    });
+  }
+
+  /**
+   * Retries pending/failed B2 deletions. Can be called by a cron job or
+   * on startup. Returns the number of deletions processed.
+   */
+  async retryPendingDeletions(limit: number = 50): Promise<{ processed: number; succeeded: number; failed: number }> {
+    const pending = await this.pendingDeletionRepository.findPending(limit);
+    const failed = await this.pendingDeletionRepository.findFailed(limit);
+    const toRetry = [...pending, ...failed].slice(0, limit);
+
+    let succeeded = 0;
+    let failedCount = 0;
+
+    for (const record of toRetry) {
+      await this.pendingDeletionRepository.markRetrying(record.id);
+      try {
+        await this.uploadsService.deleteFileByUrl(record.fileUrl);
+        await this.pendingDeletionRepository.markCompleted(record.id);
+        succeeded++;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        await this.pendingDeletionRepository.markFailed(record.id, errorMessage);
+        console.error(
+          `[DocumentsService] Retry failed for B2 deletion ${record.id} (${record.fileUrl}):`,
+          errorMessage
+        );
+        failedCount++;
+      }
+    }
+
+    return { processed: toRetry.length, succeeded, failed: failedCount };
   }
 
   async toggleFavorite(id: string, userId: string, isFavorite: boolean): Promise<DocumentWithRelations> {

@@ -944,7 +944,7 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
                                             type: 'object',
                                             properties: {
                                                 uploadUrl: { type: 'string', example: 'https://scanpro-bucket.s3.amazonaws.com/pages/...' },
-                                                publicUrl: { type: 'string', example: 'https://scanpro-bucket.s3.amazonaws.com/pages/scan_page_1.jpg' },
+                                                fileUrl: { type: 'string', example: 'https://scanpro-bucket.s3.amazonaws.com/pages/scan_page_1.jpg' },
                                                 key: { type: 'string', example: 'pages/d3b07384/1787600000000-scan_page_1.jpg' },
                                                 expiresIn: { type: 'integer', example: 3600 },
                                             },

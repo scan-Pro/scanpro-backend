@@ -93,3 +93,24 @@ model DocumentPage {
 
   @@map("document_pages")
 }
+
+model PendingDeletion {
+  id          String    @id @default(uuid())
+  fileUrl     String    @map("file_url") @db.VarChar(500)
+  documentId  String?   @map("document_id")
+  userId      String    @map("user_id")
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error") @db.Text
+  status      DeletionStatus @default(PENDING) @map("status")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@map("pending_deletions")
+}
+
+enum DeletionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}

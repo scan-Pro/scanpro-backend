@@ -1,4 +1,5 @@
 import { DocumentsRepository, DocumentWithRelations } from '../repository/documents.repository.js';
+import { PendingDeletionRepository } from '../repository/pending-deletion.repository.js';
 import { CreateDocumentDto, UpdateDocumentDto, QueryDocumentsDto, PaginatedDocumentsResult } from '../dto/documents.dto.js';
 import { UploadsService } from '../../uploads/service/uploads.service.js';
 import { FoldersRepository } from '../../folders/repository/folders.repository.js';
@@ -6,12 +7,27 @@ export declare class DocumentsService {
     private readonly documentsRepository;
     private readonly uploadsService;
     private readonly foldersRepository;
-    constructor(documentsRepository?: DocumentsRepository, uploadsService?: UploadsService, foldersRepository?: FoldersRepository);
+    private readonly pendingDeletionRepository;
+    constructor(documentsRepository?: DocumentsRepository, uploadsService?: UploadsService, foldersRepository?: FoldersRepository, pendingDeletionRepository?: PendingDeletionRepository);
     createDocument(userId: string, dto: CreateDocumentDto): Promise<DocumentWithRelations>;
     getDocuments(userId: string, filters?: QueryDocumentsDto): Promise<PaginatedDocumentsResult<DocumentWithRelations>>;
     getDocumentById(id: string, userId: string): Promise<DocumentWithRelations>;
     updateDocument(id: string, userId: string, dto: UpdateDocumentDto): Promise<DocumentWithRelations>;
     deleteDocument(id: string, userId: string): Promise<void>;
+    /**
+     * Attempts to delete B2 files, logging failures and updating the
+     * pending-deletion records so failed deletes can be retried later.
+     */
+    private _cleanupB2Files;
+    /**
+     * Retries pending/failed B2 deletions. Can be called by a cron job or
+     * on startup. Returns the number of deletions processed.
+     */
+    retryPendingDeletions(limit?: number): Promise<{
+        processed: number;
+        succeeded: number;
+        failed: number;
+    }>;
     toggleFavorite(id: string, userId: string, isFavorite: boolean): Promise<DocumentWithRelations>;
     moveToFolder(id: string, userId: string, folderId: string | null): Promise<DocumentWithRelations>;
     /**
