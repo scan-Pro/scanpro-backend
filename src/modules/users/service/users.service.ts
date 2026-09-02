@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import { UsersRepository } from '../repository/users.repository.js';
 import { UpdateProfileDto, ChangePasswordDto } from '../dto/users.dto.js';
 import { NotFoundError, UnauthorizedError } from '../../../common/errors/app-error.js';
+import { AuthRepository } from '../../auth/repository/auth.repository.js';
 
 export interface UserProfile {
   id: string;
@@ -12,7 +13,10 @@ export interface UserProfile {
 }
 
 export class UsersService {
-  constructor(private readonly usersRepository: UsersRepository = new UsersRepository()) {}
+  constructor(
+    private readonly usersRepository: UsersRepository = new UsersRepository(),
+    private readonly authRepository: AuthRepository = new AuthRepository()
+  ) {}
 
   async getProfile(userId: string): Promise<UserProfile> {
     const user = await this.usersRepository.findById(userId);
@@ -63,6 +67,10 @@ export class UsersService {
     const passwordHash = await bcrypt.hash(dto.newPassword, saltRounds);
 
     await this.usersRepository.updateProfile(userId, { passwordHash });
+
+    // Revoke all existing refresh tokens so other sessions can't keep using
+    // the old credentials once the password has changed.
+    await this.authRepository.deleteAllUserRefreshTokens(userId);
   }
 
   async deleteAccount(userId: string): Promise<void> {

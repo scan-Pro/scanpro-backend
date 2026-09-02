@@ -12,6 +12,7 @@ export class DocumentsService {
   ) {}
 
   async createDocument(userId: string, dto: CreateDocumentDto): Promise<DocumentWithRelations> {
+    await this.assertFolderOwnership(dto.folderId, userId);
     return this.documentsRepository.createDocument(userId, dto);
   }
 
@@ -57,6 +58,7 @@ export class DocumentsService {
     dto: UpdateDocumentDto
   ): Promise<DocumentWithRelations> {
     await this.getDocumentById(id, userId);
+    await this.assertFolderOwnership(dto.folderId, userId);
     return this.documentsRepository.updateDocument(id, userId, dto);
   }
 
@@ -92,12 +94,23 @@ export class DocumentsService {
 
   async moveToFolder(id: string, userId: string, folderId: string | null): Promise<DocumentWithRelations> {
     await this.getDocumentById(id, userId);
-    if (folderId) {
-      const folder = await this.foldersRepository.findById(folderId, userId);
-      if (!folder) {
-        throw new NotFoundError('Target folder not found', 'FOLDER_NOT_FOUND');
-      }
-    }
+    await this.assertFolderOwnership(folderId, userId);
     return this.documentsRepository.moveToFolder(id, userId, folderId);
+  }
+
+  /**
+   * Ensures the given folder (if any) exists and belongs to the requesting
+   * user, preventing a document from being attached to another user's
+   * folder (IDOR). No-op when `folderId` is null/undefined.
+   */
+  private async assertFolderOwnership(
+    folderId: string | null | undefined,
+    userId: string
+  ): Promise<void> {
+    if (!folderId) return;
+    const folder = await this.foldersRepository.findById(folderId, userId);
+    if (!folder) {
+      throw new NotFoundError('Target folder not found', 'FOLDER_NOT_FOUND');
+    }
   }
 }
