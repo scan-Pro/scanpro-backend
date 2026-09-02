@@ -75,6 +75,12 @@ export const searchDocumentsSchema = z.object({
     folderId: z.string().uuid().optional(),
     favorite: z.enum(['true', 'false']).optional(),
     page: z.string().regex(/^\d+$/).transform(Number).optional().default('1'),
-    limit: z.string().regex(/^\d+$/).transform(Number).optional().default('20'),
+    limit: z
+      .string()
+      .regex(/^\d+$/)
+      .transform(Number)
+      .pipe(z.number().max(100, 'limit must not exceed 100'))
+      .optional()
+      .default('20'),
   }),
 });

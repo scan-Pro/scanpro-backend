@@ -1,5 +1,6 @@
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
+import ms from 'ms';
 import { AuthRepository } from '../repository/auth.repository.js';
 import { ConflictError, UnauthorizedError } from '../../../common/errors/app-error.js';
 import { env } from '../../../config/env.js';
@@ -77,8 +78,10 @@ export class AuthService {
         const refreshToken = jwt.sign(payload, env.JWT_REFRESH_SECRET, {
             expiresIn: env.JWT_REFRESH_EXPIRES_IN,
         });
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 90); // 90 days expiry for refresh token
+        // Track the refresh token's DB-enforced expiry using the same duration
+        // signed into the JWT itself (env.JWT_REFRESH_EXPIRES_IN), so the two
+        // never drift apart.
+        const expiresAt = new Date(Date.now() + ms(env.JWT_REFRESH_EXPIRES_IN));
         await this.authRepository.saveRefreshToken(userId, refreshToken, expiresAt);
         return {
             accessToken,

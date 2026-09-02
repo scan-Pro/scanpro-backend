@@ -1,6 +1,7 @@
 import { DocumentsRepository, DocumentWithRelations } from '../repository/documents.repository.js';
-import { CreateDocumentDto, UpdateDocumentDto, QueryDocumentsDto, PaginatedDocumentsResult } from '../dto/documents.dto.js';
+import { CreateDocumentDto, UpdateDocumentDto, QueryDocumentsDto, PaginatedDocumentsResult, CreateDocumentPageDto } from '../dto/documents.dto.js';
 import { NotFoundError } from '../../../common/errors/app-error.js';
+import { assertOwnStorageUrl } from '../../../common/utils/storage-url.util.js';
 import { UploadsService } from '../../uploads/service/uploads.service.js';
 import { FoldersRepository } from '../../folders/repository/folders.repository.js';
 
@@ -13,6 +14,7 @@ export class DocumentsService {
 
   async createDocument(userId: string, dto: CreateDocumentDto): Promise<DocumentWithRelations> {
     await this.assertFolderOwnership(dto.folderId, userId);
+    this.assertOwnFileUrls(userId, dto);
     return this.documentsRepository.createDocument(userId, dto);
   }
 
@@ -59,6 +61,7 @@ export class DocumentsService {
   ): Promise<DocumentWithRelations> {
     await this.getDocumentById(id, userId);
     await this.assertFolderOwnership(dto.folderId, userId);
+    this.assertOwnFileUrls(userId, dto);
     return this.documentsRepository.updateDocument(id, userId, dto);
   }
 
@@ -111,6 +114,25 @@ export class DocumentsService {
     const folder = await this.foldersRepository.findById(folderId, userId);
     if (!folder) {
       throw new NotFoundError('Target folder not found', 'FOLDER_NOT_FOUND');
+    }
+  }
+
+  /**
+   * Ensures every file URL in the payload (document thumbnail/PDF, and each
+   * page's image/thumbnail) was actually issued to this user by
+   * `UploadsService`, rather than trusting an arbitrary client-supplied
+   * string — closing the gap where a document could reference another
+   * tenant's storage objects (or a bogus non-cloud value).
+   */
+  private assertOwnFileUrls(
+    userId: string,
+    dto: { thumbnailUrl?: string | null; pdfUrl?: string | null; pages?: CreateDocumentPageDto[] }
+  ): void {
+    assertOwnStorageUrl(dto.thumbnailUrl, userId, 'thumbnailUrl');
+    assertOwnStorageUrl(dto.pdfUrl, userId, 'pdfUrl');
+    for (const page of dto.pages ?? []) {
+      assertOwnStorageUrl(page.imageUrl, userId, 'pages[].imageUrl');
+      assertOwnStorageUrl(page.thumbnailUrl, userId, 'pages[].thumbnailUrl');
     }
   }
 }

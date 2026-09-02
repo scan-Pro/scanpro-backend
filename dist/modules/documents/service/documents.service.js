@@ -1,5 +1,6 @@
 import { DocumentsRepository } from '../repository/documents.repository.js';
 import { NotFoundError } from '../../../common/errors/app-error.js';
+import { assertOwnStorageUrl } from '../../../common/utils/storage-url.util.js';
 import { UploadsService } from '../../uploads/service/uploads.service.js';
 import { FoldersRepository } from '../../folders/repository/folders.repository.js';
 export class DocumentsService {
@@ -12,6 +13,8 @@ export class DocumentsService {
         this.foldersRepository = foldersRepository;
     }
     async createDocument(userId, dto) {
+        await this.assertFolderOwnership(dto.folderId, userId);
+        this.assertOwnFileUrls(userId, dto);
         return this.documentsRepository.createDocument(userId, dto);
     }
     async getDocuments(userId, filters) {
@@ -44,6 +47,8 @@ export class DocumentsService {
     }
     async updateDocument(id, userId, dto) {
         await this.getDocumentById(id, userId);
+        await this.assertFolderOwnership(dto.folderId, userId);
+        this.assertOwnFileUrls(userId, dto);
         return this.documentsRepository.updateDocument(id, userId, dto);
     }
     async deleteDocument(id, userId) {
@@ -75,13 +80,36 @@ export class DocumentsService {
     }
     async moveToFolder(id, userId, folderId) {
         await this.getDocumentById(id, userId);
-        if (folderId) {
-            const folder = await this.foldersRepository.findById(folderId, userId);
-            if (!folder) {
-                throw new NotFoundError('Target folder not found', 'FOLDER_NOT_FOUND');
-            }
-        }
+        await this.assertFolderOwnership(folderId, userId);
         return this.documentsRepository.moveToFolder(id, userId, folderId);
+    }
+    /**
+     * Ensures the given folder (if any) exists and belongs to the requesting
+     * user, preventing a document from being attached to another user's
+     * folder (IDOR). No-op when `folderId` is null/undefined.
+     */
+    async assertFolderOwnership(folderId, userId) {
+        if (!folderId)
+            return;
+        const folder = await this.foldersRepository.findById(folderId, userId);
+        if (!folder) {
+            throw new NotFoundError('Target folder not found', 'FOLDER_NOT_FOUND');
+        }
+    }
+    /**
+     * Ensures every file URL in the payload (document thumbnail/PDF, and each
+     * page's image/thumbnail) was actually issued to this user by
+     * `UploadsService`, rather than trusting an arbitrary client-supplied
+     * string — closing the gap where a document could reference another
+     * tenant's storage objects (or a bogus non-cloud value).
+     */
+    assertOwnFileUrls(userId, dto) {
+        assertOwnStorageUrl(dto.thumbnailUrl, userId, 'thumbnailUrl');
+        assertOwnStorageUrl(dto.pdfUrl, userId, 'pdfUrl');
+        for (const page of dto.pages ?? []) {
+            assertOwnStorageUrl(page.imageUrl, userId, 'pages[].imageUrl');
+            assertOwnStorageUrl(page.thumbnailUrl, userId, 'pages[].thumbnailUrl');
+        }
     }
 }
 //# sourceMappingURL=documents.service.js.map

@@ -7,17 +7,31 @@ export class FoldersService {
     }
     async createFolder(userId, dto) {
         const trimmedName = dto.name.trim();
-        const existing = await this.foldersRepository.findByName(userId, trimmedName);
-        if (existing) {
-            return existing;
-        }
         if (dto.id) {
+            // A client-supplied (offline-generated) id is the source of truth for
+            // idempotent retries — check it first rather than matching by name,
+            // so a retry always resolves to the exact folder the client expects.
             const existingById = await this.foldersRepository.findById(dto.id, userId);
             if (existingById) {
                 return existingById;
             }
+            // No folder exists under this id yet. If a *different* folder already
+            // owns this name (unique per user), this is a genuine conflict —
+            // surface it instead of silently returning that other folder under an
+            // id the client never asked for.
+            const existingByName = await this.foldersRepository.findByName(userId, trimmedName);
+            if (existingByName) {
+                throw new ConflictError('A folder with this name already exists', 'FOLDER_ALREADY_EXISTS');
+            }
+            return this.foldersRepository.createFolder(userId, trimmedName, dto.id);
         }
-        return this.foldersRepository.createFolder(userId, trimmedName, dto.id);
+        // No client-supplied id: fall back to name-based idempotency so retries
+        // without an id don't create duplicate folders.
+        const existingByName = await this.foldersRepository.findByName(userId, trimmedName);
+        if (existingByName) {
+            return existingByName;
+        }
+        return this.foldersRepository.createFolder(userId, trimmedName);
     }
     async getFolders(userId) {
         return this.foldersRepository.findUserFolders(userId);

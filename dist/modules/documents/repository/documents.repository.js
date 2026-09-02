@@ -1,4 +1,9 @@
 import { prisma } from '../../../config/database.js';
+import { NotFoundError } from '../../../common/errors/app-error.js';
+const documentIncludeFull = {
+    folder: { select: { id: true, name: true } },
+    pages: { orderBy: { pageOrder: 'asc' } },
+};
 export class DocumentsRepository {
     async createDocument(userId, data) {
         if (data.id) {
@@ -42,10 +47,7 @@ export class DocumentsRepository {
                     }
                     : undefined,
             },
-            include: {
-                folder: { select: { id: true, name: true } },
-                pages: { orderBy: { pageOrder: 'asc' } },
-            },
+            include: documentIncludeFull,
         });
     }
     async findUserDocuments(userId, filters) {
@@ -81,14 +83,36 @@ export class DocumentsRepository {
     async findById(id, userId) {
         return prisma.document.findFirst({
             where: { id, userId },
-            include: {
-                folder: { select: { id: true, name: true } },
-                pages: { orderBy: { pageOrder: 'asc' } },
-            },
+            include: documentIncludeFull,
         });
     }
+    // `update`/`delete` only accept unique-field `where` clauses in Prisma, so
+    // `userId` scoping can't be expressed there directly. `updateMany`/
+    // `deleteMany` do support arbitrary `where` filters, so every mutation
+    // below enforces ownership at the query level (not just in the calling
+    // service), and treats a zero-row match as "not found" rather than
+    // silently succeeding on — or leaking — another tenant's data.
     async updateDocument(id, userId, data) {
         return prisma.$transaction(async (tx) => {
+            const { count } = await tx.document.updateMany({
+                where: { id, userId },
+                data: {
+                    ...(data.title !== undefined ? { title: data.title } : {}),
+                    ...(data.folderId !== undefined ? { folderId: data.folderId } : {}),
+                    ...(data.thumbnailUrl !== undefined ? { thumbnailUrl: data.thumbnailUrl } : {}),
+                    ...(data.pdfUrl !== undefined ? { pdfUrl: data.pdfUrl } : {}),
+                    ...(data.pageCount !== undefined
+                        ? { pageCount: data.pageCount }
+                        : data.pages !== undefined
+                            ? { pageCount: data.pages.length }
+                            : {}),
+                    ...(data.isFavorite !== undefined ? { isFavorite: data.isFavorite } : {}),
+                    updatedAt: new Date(),
+                },
+            });
+            if (count === 0) {
+                throw new NotFoundError('Document not found', 'DOCUMENT_NOT_FOUND');
+            }
             if (data.pages !== undefined) {
                 await tx.documentPage.deleteMany({
                     where: { documentId: id },
@@ -107,51 +131,44 @@ export class DocumentsRepository {
                     });
                 }
             }
-            return tx.document.update({
+            return tx.document.findUniqueOrThrow({
                 where: { id },
-                data: {
-                    ...(data.title !== undefined ? { title: data.title } : {}),
-                    ...(data.folderId !== undefined ? { folderId: data.folderId } : {}),
-                    ...(data.thumbnailUrl !== undefined ? { thumbnailUrl: data.thumbnailUrl } : {}),
-                    ...(data.pdfUrl !== undefined ? { pdfUrl: data.pdfUrl } : {}),
-                    ...(data.pageCount !== undefined
-                        ? { pageCount: data.pageCount }
-                        : data.pages !== undefined
-                            ? { pageCount: data.pages.length }
-                            : {}),
-                    ...(data.isFavorite !== undefined ? { isFavorite: data.isFavorite } : {}),
-                    updatedAt: new Date(),
-                },
-                include: {
-                    folder: { select: { id: true, name: true } },
-                    pages: { orderBy: { pageOrder: 'asc' } },
-                },
+                include: documentIncludeFull,
             });
         });
     }
     async deleteDocument(id, userId) {
-        await prisma.document.delete({
-            where: { id },
+        const { count } = await prisma.document.deleteMany({
+            where: { id, userId },
         });
+        if (count === 0) {
+            throw new NotFoundError('Document not found', 'DOCUMENT_NOT_FOUND');
+        }
     }
     async toggleFavorite(id, userId, isFavorite) {
-        return prisma.document.update({
-            where: { id },
+        const { count } = await prisma.document.updateMany({
+            where: { id, userId },
             data: { isFavorite },
-            include: {
-                folder: { select: { id: true, name: true } },
-                pages: { orderBy: { pageOrder: 'asc' } },
-            },
+        });
+        if (count === 0) {
+            throw new NotFoundError('Document not found', 'DOCUMENT_NOT_FOUND');
+        }
+        return prisma.document.findUniqueOrThrow({
+            where: { id },
+            include: documentIncludeFull,
         });
     }
     async moveToFolder(id, userId, folderId) {
-        return prisma.document.update({
-            where: { id },
+        const { count } = await prisma.document.updateMany({
+            where: { id, userId },
             data: { folderId },
-            include: {
-                folder: { select: { id: true, name: true } },
-                pages: { orderBy: { pageOrder: 'asc' } },
-            },
+        });
+        if (count === 0) {
+            throw new NotFoundError('Document not found', 'DOCUMENT_NOT_FOUND');
+        }
+        return prisma.document.findUniqueOrThrow({
+            where: { id },
+            include: documentIncludeFull,
         });
     }
 }

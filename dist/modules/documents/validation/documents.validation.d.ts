@@ -324,7 +324,7 @@ export declare const searchDocumentsSchema: z.ZodObject<{
         folderId: z.ZodOptional<z.ZodString>;
         favorite: z.ZodOptional<z.ZodEnum<["true", "false"]>>;
         page: z.ZodDefault<z.ZodOptional<z.ZodEffects<z.ZodString, number, string>>>;
-        limit: z.ZodDefault<z.ZodOptional<z.ZodEffects<z.ZodString, number, string>>>;
+        limit: z.ZodDefault<z.ZodOptional<z.ZodPipeline<z.ZodEffects<z.ZodString, number, string>, z.ZodNumber>>>;
     }, "strip", z.ZodTypeAny, {
         limit: number;
         page: number;

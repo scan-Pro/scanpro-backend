@@ -14,4 +14,18 @@ export declare class DocumentsService {
     deleteDocument(id: string, userId: string): Promise<void>;
     toggleFavorite(id: string, userId: string, isFavorite: boolean): Promise<DocumentWithRelations>;
     moveToFolder(id: string, userId: string, folderId: string | null): Promise<DocumentWithRelations>;
+    /**
+     * Ensures the given folder (if any) exists and belongs to the requesting
+     * user, preventing a document from being attached to another user's
+     * folder (IDOR). No-op when `folderId` is null/undefined.
+     */
+    private assertFolderOwnership;
+    /**
+     * Ensures every file URL in the payload (document thumbnail/PDF, and each
+     * page's image/thumbnail) was actually issued to this user by
+     * `UploadsService`, rather than trusting an arbitrary client-supplied
+     * string — closing the gap where a document could reference another
+     * tenant's storage objects (or a bogus non-cloud value).
+     */
+    private assertOwnFileUrls;
 }
