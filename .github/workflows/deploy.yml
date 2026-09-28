@@ -3,10 +3,11 @@ name: Deploy Backend to EC2
 on:
   push:
     branches:
-      - production # Ya master, jo bhi aapki default branch ho
+      - production
 
 jobs:
   deploy:
+    name: 🚀 Deploy to Production
     runs-on: ubuntu-latest
 
     steps:
@@ -20,22 +21,32 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
+          script_stop: true
           script: |
-            # 1. Project directory me navigate karein
+            set -e
+
+            echo "📂 Navigating to project directory..."
             cd /srv/scaniro/backend
 
-            # 2. Latest code pull karein
-            git pull origin main
+            echo "📥 Pulling latest code from production branch..."
+            git pull origin production
 
-            # 3. Dependencies install aur build karein
-            npm install
+            echo "📦 Installing dependencies..."
+            npm ci --omit=dev
+
+            echo "🔧 Generating Prisma Client..."
+            npx prisma generate
+
+            echo "🗄️ Syncing database schema..."
+            npx prisma db push --accept-data-loss
+
+            echo "🏗️ Building TypeScript..."
             npm run build
 
-            # 4. Prisma database schema sync karein
-            npx prisma db push
+            echo "🔄 Restarting PM2 process..."
+            pm2 restart scaniro-backend --update-env || pm2 start dist/server.js --name scaniro-backend --node-args="--env-file=.env"
 
-            # 5. PM2 restart ya start karein
-            pm2 restart scanpro-backend || pm2 start dist/app.js --name scanpro-backend
-
-            # 6. PM2 configuration save karein
+            echo "💾 Saving PM2 process list..."
             pm2 save
+
+            echo "✅ Deployment completed successfully!"

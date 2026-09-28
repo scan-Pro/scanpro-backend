@@ -19,6 +19,9 @@ import { uploadsRoutes } from './modules/uploads/routes/uploads.routes.js';
 export const createApp = (): Express => {
   const app = express();
 
+  // Trust reverse proxy (Caddy / Cloudflare)
+  app.set('trust proxy', 1);
+
   // Security Middlewares (CSP disabled to allow Swagger UI scripts/styles)
   app.use(
     helmet({
