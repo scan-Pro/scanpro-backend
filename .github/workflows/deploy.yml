@@ -32,6 +32,11 @@ jobs:
             git fetch origin production
             git reset --hard origin/production
 
+            echo "🔐 Ensuring production .env is loaded..."
+            if [ -f /srv/scaniro/.env ]; then
+              cp /srv/scaniro/.env /srv/scaniro/backend/.env
+            fi
+
             echo "📦 Installing dependencies..."
             npm install
 
