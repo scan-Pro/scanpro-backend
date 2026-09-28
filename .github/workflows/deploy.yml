@@ -32,7 +32,7 @@ jobs:
             git pull origin production
 
             echo "📦 Installing dependencies..."
-            npm ci --omit=dev
+            npm install
 
             echo "🔧 Generating Prisma Client..."
             npx prisma generate
