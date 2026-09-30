@@ -14,6 +14,21 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install and validate
+        run: |
+          npm ci
+          npm test
+          npm run build
+          npx prisma validate
+        env:
+          DATABASE_URL: mysql://user:password@localhost:3306/scaniro_ci
+
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -43,15 +58,19 @@ jobs:
             echo "🔧 Generating Prisma Client..."
             npx prisma generate
 
+            echo "🏗️ Building TypeScript..."
+            npm run build
+
             echo "🗄️ Applying reviewed Prisma migrations..."
             if [ ! -d prisma/migrations ] || ! find prisma/migrations -mindepth 1 -maxdepth 1 -type d -print -quit | grep -q .; then
-              echo "Deployment blocked: no verified Prisma migration baseline exists."
+              echo "Deployment blocked: Prisma migrations are missing."
+              exit 1
+            fi
+            if [ ! -f prisma/migrations/20260930150000_initial_schema_baseline/BASELINE_VERIFIED ]; then
+              echo "Deployment blocked: production migration baseline requires database verification."
               exit 1
             fi
             npx prisma migrate deploy
-
-            echo "🏗️ Building TypeScript..."
-            npm run build
 
             echo "🔄 Restarting PM2 process..."
             pm2 restart scaniro-backend --update-env || pm2 start dist/server.js --name scaniro-backend --node-args="--env-file=.env"

@@ -298,6 +298,20 @@ test('authentication middleware accepts a valid access token and rejects expired
   assert.equal(legacyError, undefined);
   assert.equal(legacyRequest.user?.userId, 'user-1');
 
+  const invalidClaimsLegacyFallback = jwt.sign(
+    { userId: 'user-1', email: 'test@example.com', aud: 'wrong-client' },
+    env.JWT_ACCESS_SECRET,
+    { algorithm: 'HS256', expiresIn: '15m', issuer: env.JWT_ISSUER },
+  );
+  const invalidClaimsRequest = {
+    headers: { authorization: `Bearer ${invalidClaimsLegacyFallback}` },
+  } as AuthenticatedRequest;
+  let invalidClaimsError: unknown;
+  authenticate(invalidClaimsRequest, {} as never, (error?: unknown) => {
+    invalidClaimsError = error;
+  });
+  assert.ok(invalidClaimsError instanceof UnauthorizedError);
+
   const expired = jwt.sign(
     { userId: 'user-1', email: 'test@example.com', tokenType: 'access' },
     env.JWT_ACCESS_SECRET,
@@ -512,6 +526,20 @@ test('example JWT secrets are placeholders and deployment avoids db push', async
     'utf8',
   );
   const gitignore = await readFile(new URL('../.gitignore', import.meta.url), 'utf8');
+  const baselineSql = await readFile(
+    new URL(
+      '../prisma/migrations/20260930150000_initial_schema_baseline/migration.sql',
+      import.meta.url,
+    ),
+    'utf8',
+  );
+  const baselineMarker = await readFile(
+    new URL(
+      '../prisma/migrations/20260930150000_initial_schema_baseline/BASELINE_VERIFIED',
+      import.meta.url,
+    ),
+    'utf8',
+  );
 
   for (const key of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET']) {
     const value = example
@@ -524,7 +552,13 @@ test('example JWT secrets are placeholders and deployment avoids db push', async
   assert.match(gitignore, /^!\.env\.example$/m);
   assert.match(workflow, /npx prisma migrate deploy/);
   assert.match(workflow, /hash-refresh-tokens\.js/);
+  assert.match(workflow, /BASELINE_VERIFIED/);
+  assert.match(workflow, /npm test/);
+  assert.match(workflow, /npm run build/);
   assert.doesNotMatch(workflow, /db push --accept-data-loss/);
+  assert.match(baselineSql, /CREATE TABLE `users`/);
+  assert.doesNotMatch(baselineSql, /\bDROP TABLE\b/i);
+  assert.match(baselineMarker, /diff was empty/i);
   const schema = await readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8');
   assert.match(schema, /refreshTokens RefreshToken\[\]/);
   assert.match(schema, /onDelete: Cascade/);

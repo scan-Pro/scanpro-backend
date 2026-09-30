@@ -1,0 +1,3 @@
+The production MySQL schema was compared to this migration with Prisma migrate diff.
+The diff was empty, and this migration was recorded as applied with prisma migrate resolve.
+No application tables or rows were created or changed by the baseline operation.

@@ -71,7 +71,11 @@ export function verifyLegacyRefreshToken(
     typeof decoded === 'string' ||
     typeof decoded.userId !== 'string' ||
     typeof decoded.email !== 'string' ||
-    typeof decoded.exp !== 'number'
+    typeof decoded.exp !== 'number' ||
+    decoded.tokenType !== undefined ||
+    decoded.iss !== undefined ||
+    decoded.aud !== undefined ||
+    decoded.jti !== undefined
   ) {
     throw new jwt.JsonWebTokenError('Invalid legacy token claims');
   }
@@ -93,7 +97,10 @@ export function verifyLegacyAccessToken(
     typeof decoded.email !== 'string' ||
     typeof decoded.iat !== 'number' ||
     typeof decoded.exp !== 'number' ||
-    decoded.tokenType !== undefined
+    decoded.tokenType !== undefined ||
+    decoded.iss !== undefined ||
+    decoded.aud !== undefined ||
+    decoded.jti !== undefined
   ) {
     throw new jwt.JsonWebTokenError('Invalid legacy access-token claims');
   }
