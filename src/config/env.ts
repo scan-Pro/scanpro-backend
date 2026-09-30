@@ -11,6 +11,8 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET is required and must be at least 32 characters'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET is required and must be at least 32 characters'),
+  JWT_ISSUER: z.string().min(1).default('scaniro-api'),
+  JWT_AUDIENCE: z.string().min(1).default('scaniro-client'),
   // Kept short since access tokens are stateless (no revocation list) and
   // are re-minted transparently via refresh-token rotation on the client.
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),

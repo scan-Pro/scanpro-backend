@@ -37,7 +37,7 @@ model User {
 
 model RefreshToken {
   id        String   @id @default(uuid())
-  token     String   @unique @db.VarChar(500)
+  tokenHash String   @unique @map("token") @db.VarChar(500)
   userId    String   @map("user_id")
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime @map("expires_at")

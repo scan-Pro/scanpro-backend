@@ -1,5 +1,6 @@
 import { prisma } from '../../../config/database.js';
 import { User, RefreshToken } from '@prisma/client';
+import { UnauthorizedError } from '../../../common/errors/app-error.js';
 
 export class AuthRepository {
   async findUserByEmail(email: string): Promise<User | null> {
@@ -24,27 +25,104 @@ export class AuthRepository {
     });
   }
 
-  async saveRefreshToken(userId: string, token: string, expiresAt: Date): Promise<RefreshToken> {
+  async saveRefreshToken(
+    userId: string,
+    tokenHash: string,
+    expiresAt: Date,
+  ): Promise<RefreshToken> {
     return prisma.refreshToken.create({
       data: {
         userId,
-        token,
+        tokenHash,
         expiresAt,
       },
     });
   }
 
-  async findRefreshToken(token: string): Promise<(RefreshToken & { user: User }) | null> {
+  async findRefreshToken(
+    tokenHash: string,
+  ): Promise<(RefreshToken & { user: User }) | null> {
     return prisma.refreshToken.findUnique({
-      where: { token },
+      where: { tokenHash },
       include: { user: true },
     });
   }
 
-  async deleteRefreshToken(token: string): Promise<void> {
-    await prisma.refreshToken.deleteMany({
-      where: { token },
+  async findLegacyRefreshToken(
+    rawToken: string,
+  ): Promise<(RefreshToken & { user: User }) | null> {
+    return prisma.refreshToken.findUnique({
+      where: { tokenHash: rawToken },
+      include: { user: true },
     });
+  }
+
+  async deleteRefreshToken(tokenHash: string, legacyRawToken?: string): Promise<void> {
+    await prisma.refreshToken.deleteMany({
+      where: {
+        tokenHash: {
+          in: legacyRawToken ? [tokenHash, legacyRawToken] : [tokenHash],
+        },
+      },
+    });
+  }
+
+  async rotateRefreshToken(data: {
+    oldRecordId: string;
+    userId: string;
+    oldStoredValue: string;
+    newTokenHash: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+      await tx.refreshToken.create({
+        data: {
+          userId: data.userId,
+          tokenHash: data.newTokenHash,
+          expiresAt: data.expiresAt,
+        },
+      });
+
+      const consumed = await tx.refreshToken.deleteMany({
+        where: {
+          id: data.oldRecordId,
+          userId: data.userId,
+          tokenHash: data.oldStoredValue,
+        },
+      });
+      if (consumed.count !== 1) {
+        throw new UnauthorizedError(
+          'Refresh token has already been used',
+          'REFRESH_TOKEN_REUSED',
+        );
+      }
+    });
+  }
+
+  async deleteExpiredRefreshToken(id: string): Promise<void> {
+    await prisma.refreshToken.deleteMany({
+      where: { id, expiresAt: { lte: new Date() } },
+    });
+  }
+
+  async findRefreshTokensForHashMigration(): Promise<
+    { id: string; tokenHash: string }[]
+  > {
+    return prisma.refreshToken.findMany({
+      select: { id: true, tokenHash: true },
+    });
+  }
+
+  async replaceLegacyRefreshToken(
+    id: string,
+    legacyRawToken: string,
+    tokenHash: string,
+  ): Promise<boolean> {
+    const result = await prisma.refreshToken.updateMany({
+      where: { id, tokenHash: legacyRawToken },
+      data: { tokenHash },
+    });
+    return result.count === 1;
   }
 
   async deleteAllUserRefreshTokens(userId: string): Promise<void> {
