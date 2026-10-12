@@ -81,9 +81,6 @@ export class DocumentsService {
       }
     }
 
-    // Delete DB record first (fast), then clean up B2 files in background
-    await this.documentsRepository.deleteDocument(id, userId);
-
     // Persist pending deletions so failed B2 deletes can be retried later
     const cloudUrls = urlsToDelete.filter((u) => u.startsWith('http'));
     if (cloudUrls.length > 0) {
@@ -92,8 +89,13 @@ export class DocumentsService {
       );
     }
 
+    // Delete DB record
+    await this.documentsRepository.deleteDocument(id, userId);
+
     // Fire-and-forget B2 cleanup — failures are logged and recorded for retry
-    this._cleanupB2Files(cloudUrls, id);
+    if (cloudUrls.length > 0) {
+      this._cleanupB2Files(cloudUrls, id);
+    }
   }
 
   /**
@@ -103,19 +105,20 @@ export class DocumentsService {
   private _cleanupB2Files(urls: string[], documentId: string): void {
     Promise.allSettled(
       urls.map((url) => this.uploadsService.deleteFileByUrl(url))
-    ).then((results) => {
-      const failures = results
-        .map((r, i) => ({ result: r, url: urls[i] }))
-        .filter(({ result }) => result.status === 'rejected');
-
-      if (failures.length > 0) {
-        console.warn(
-          `[DocumentsService] ${failures.length}/${urls.length} B2 deletions failed for document ${documentId}:`,
-          failures.map(({ url, result }) => ({
-            url,
-            error: (result as PromiseRejectedResult).reason?.message ?? 'Unknown error',
-          }))
-        );
+    ).then(async (results) => {
+      for (let i = 0; i < results.length; i++) {
+        const result = results[i];
+        const url = urls[i];
+        if (result.status === 'fulfilled') {
+          await this.pendingDeletionRepository.markCompletedByUrl(url);
+        } else {
+          const errorMsg = (result as PromiseRejectedResult).reason?.message ?? 'Unknown error';
+          console.warn(
+            `[DocumentsService] B2 deletion failed for document ${documentId} (${url}):`,
+            errorMsg
+          );
+          await this.pendingDeletionRepository.markFailedByUrl(url, errorMsg);
+        }
       }
     });
   }

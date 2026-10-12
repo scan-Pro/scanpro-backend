@@ -61,7 +61,10 @@ export class UploadsService {
 
     try {
       const key = this._extractKeyFromUrl(fileUrl);
-      if (!key) return;
+      if (!key) {
+        console.warn('[UploadsService] Could not extract S3 key from URL:', fileUrl);
+        throw new Error(`Cannot extract key from file URL: ${fileUrl}`);
+      }
 
       await s3Client.send(
         new DeleteObjectCommand({
@@ -70,8 +73,8 @@ export class UploadsService {
         })
       );
     } catch (err) {
-      // Log but don't rethrow — a failed B2 delete must not block the DB delete
       console.error('[UploadsService] Failed to delete B2 file:', fileUrl, err);
+      throw err;
     }
   }
 

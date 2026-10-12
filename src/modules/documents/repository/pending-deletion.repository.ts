@@ -33,9 +33,27 @@ export class PendingDeletionRepository {
     });
   }
 
+  async markCompletedByUrl(fileUrl: string): Promise<void> {
+    await prisma.pendingDeletion.updateMany({
+      where: { fileUrl, status: 'PENDING' },
+      data: { status: 'COMPLETED' },
+    });
+  }
+
   async markFailed(id: string, error: string): Promise<void> {
     await prisma.pendingDeletion.update({
       where: { id },
+      data: {
+        status: 'FAILED',
+        attempts: { increment: 1 },
+        lastError: error.slice(0, 1000),
+      },
+    });
+  }
+
+  async markFailedByUrl(fileUrl: string, error: string): Promise<void> {
+    await prisma.pendingDeletion.updateMany({
+      where: { fileUrl, status: 'PENDING' },
       data: {
         status: 'FAILED',
         attempts: { increment: 1 },
