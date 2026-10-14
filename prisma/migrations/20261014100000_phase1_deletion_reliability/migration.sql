@@ -2,8 +2,8 @@ ALTER TABLE `users`
   ADD COLUMN `lifecycle_status` ENUM('ACTIVE', 'DELETING') NOT NULL DEFAULT 'ACTIVE';
 
 ALTER TABLE `pending_deletions`
-  ADD COLUMN `bucket` VARCHAR(255) NOT NULL DEFAULT '',
-  ADD COLUMN `object_key` VARCHAR(1024) NOT NULL DEFAULT '',
+  ADD COLUMN `bucket` VARCHAR(100) NOT NULL DEFAULT '',
+  ADD COLUMN `object_key` VARCHAR(500) NOT NULL DEFAULT '',
   ADD COLUMN `lease_token` VARCHAR(36) NULL,
   ADD COLUMN `lease_until` DATETIME(3) NULL,
   MODIFY `status` ENUM('PENDING', 'COMPLETED', 'FAILED', 'DEAD_LETTER') NOT NULL DEFAULT 'PENDING';
@@ -21,8 +21,8 @@ CREATE INDEX `pending_deletions_bucket_object_idx`
 CREATE TABLE `upload_grants` (
   `id` VARCHAR(191) NOT NULL,
   `user_id` VARCHAR(191) NOT NULL,
-  `bucket` VARCHAR(255) NOT NULL,
-  `object_key` VARCHAR(1024) NOT NULL,
+  `bucket` VARCHAR(100) NOT NULL,
+  `object_key` VARCHAR(500) NOT NULL,
   `expires_at` DATETIME(3) NOT NULL,
   `cleanup_done` BOOLEAN NOT NULL DEFAULT false,
   `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
