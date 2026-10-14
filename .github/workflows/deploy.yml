@@ -23,11 +23,17 @@ jobs:
       - name: Install and validate
         run: |
           npm ci
+          npx prisma generate
           npm test
           npm run build
           npx prisma validate
         env:
           DATABASE_URL: mysql://user:password@localhost:3306/scaniro_ci
+          JWT_ACCESS_SECRET: test-access-secret-that-is-at-least-32-chars
+          JWT_REFRESH_SECRET: test-refresh-secret-that-is-at-least-32-chars
+          AWS_ACCESS_KEY_ID: test-access-key
+          AWS_SECRET_ACCESS_KEY: test-secret-key
+          AWS_S3_BUCKET: scanpro-test-bucket
 
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3

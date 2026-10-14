@@ -9,130 +9,80 @@ process.env.AWS_ACCESS_KEY_ID = 'test-access-key';
 process.env.AWS_SECRET_ACCESS_KEY = 'test-secret-key';
 process.env.AWS_S3_BUCKET = 'scanpro-test-bucket';
 
-import { UsersService } from '../src/modules/users/service/users.service.js';
-import { DocumentsService } from '../src/modules/documents/service/documents.service.js';
-import { DeletionWorkerService } from '../src/modules/documents/service/deletion-worker.service.js';
-import { PendingDeletionRecord } from '../src/modules/documents/repository/pending-deletion.repository.js';
-import { prisma } from '../src/config/database.js';
+const { UsersService } = await import('../src/modules/users/service/users.service.js');
+const { DocumentsService } = await import('../src/modules/documents/service/documents.service.js');
+const { DeletionWorkerService } = await import('../src/modules/documents/service/deletion-worker.service.js');
 
-test('UploadsService.deleteFileByUrl throws error when S3 delete fails', async () => {
+test('UploadsService.deleteFileByUrl throws error when URL is invalid or unowned', async () => {
   const { UploadsService } = await import('../src/modules/uploads/service/uploads.service.js');
   const service = new UploadsService();
 
   // Test invalid URL format throws error
   await assert.rejects(
     async () => {
-      await service.deleteFileByUrl('invalid-url-without-slash');
+      await service.deleteFileByUrl('invalid-url-without-slash', 'test-user-123');
     },
     {
-      message: /Cannot extract key from file URL/,
+      message: /File URL is not a generated object owned by this user/,
     }
   );
 });
 
-test('UsersService.deleteAccount records all owned cloud URLs before deleting user', async () => {
+test('UsersService.deleteAccount requests account deletion for active user', async () => {
   const userId = 'test-user-123';
-  const createdEntries: any[] = [];
-  let userDeleted = false;
-  const deletedUrls: string[] = [];
-
-  // Mock Prisma document query
-  const originalFindMany = prisma.document.findMany;
-  (prisma.document as any).findMany = async (args: any) => {
-    assert.equal(args.where.userId, userId);
-    return [
-      {
-        id: 'doc-1',
-        userId,
-        thumbnailUrl: 'https://b2.scanpro.com/files/doc1-thumb.jpg',
-        pdfUrl: 'https://b2.scanpro.com/files/doc1.pdf',
-        pages: [
-          {
-            id: 'page-1',
-            imageUrl: 'https://b2.scanpro.com/files/p1.jpg',
-            thumbnailUrl: 'https://b2.scanpro.com/files/p1-thumb.jpg',
-          },
-        ],
-      },
-      {
-        id: 'doc-2',
-        userId,
-        thumbnailUrl: null,
-        pdfUrl: 'https://b2.scanpro.com/files/doc2.pdf',
-        pages: [],
-      },
-    ];
-  };
+  let requested = false;
 
   const mockUsersRepo = {
-    findById: async (id: string) => ({ id, name: 'Test', email: 'test@example.com', passwordHash: 'hash', createdAt: new Date(), updatedAt: new Date() }),
-    deleteUser: async (id: string) => {
-      // Must be called AFTER pending deletions are created
-      assert.equal(createdEntries.length, 5, 'Pending deletions must be recorded before deleting user');
-      userDeleted = true;
+    findById: async (id: string) => ({
+      id,
+      name: 'Test',
+      email: 'test@example.com',
+      passwordHash: 'hash',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }),
+    requestAccountDeletion: async (id: string) => {
+      assert.equal(id, userId);
+      requested = true;
     },
   } as any;
 
-  const mockPendingRepo = {
-    createMany: async (entries: any[]) => {
-      createdEntries.push(...entries);
-    },
-    markCompletedByUrl: async (url: string) => {
-      deletedUrls.push(url);
-    },
-    markFailedByUrl: async (_url: string, _err: string) => {},
-  } as any;
+  const usersService = new UsersService(
+    mockUsersRepo,
+    {} as any,
+  );
 
-  const mockUploads = {
-    deleteFileByUrl: async (url: string) => {
-      return; // Success
-    },
-  } as any;
-
-  try {
-    const usersService = new UsersService(
-      mockUsersRepo,
-      {} as any,
-      mockPendingRepo,
-      mockUploads
-    );
-
-    await usersService.deleteAccount(userId);
-
-    assert.equal(userDeleted, true);
-    assert.equal(createdEntries.length, 5);
-    const urls = createdEntries.map((e) => e.fileUrl);
-    assert.ok(urls.includes('https://b2.scanpro.com/files/doc1-thumb.jpg'));
-    assert.ok(urls.includes('https://b2.scanpro.com/files/doc1.pdf'));
-    assert.ok(urls.includes('https://b2.scanpro.com/files/p1.jpg'));
-    assert.ok(urls.includes('https://b2.scanpro.com/files/p1-thumb.jpg'));
-    assert.ok(urls.includes('https://b2.scanpro.com/files/doc2.pdf'));
-  } finally {
-    prisma.document.findMany = originalFindMany;
-  }
+  await usersService.deleteAccount(userId);
+  assert.equal(requested, true);
 });
 
 test('DocumentsService.retryPendingDeletions updates status to FAILED on error and does not falsely mark COMPLETED', async () => {
-  const records: PendingDeletionRecord[] = [
+  const records = [
     {
       id: 'rec-1',
+      bucket: 'test-bucket',
+      objectKey: 'users/user-1/fail.pdf',
       fileUrl: 'https://b2.scanpro.com/fail.pdf',
       documentId: 'doc-1',
       userId: 'user-1',
       attempts: 0,
       lastError: null,
       status: 'PENDING',
+      leaseToken: 'lease-token-1',
       createdAt: new Date(),
       updatedAt: new Date(),
     },
     {
       id: 'rec-2',
+      bucket: 'test-bucket',
+      objectKey: 'users/user-1/success.pdf',
       fileUrl: 'https://b2.scanpro.com/success.pdf',
       documentId: 'doc-2',
       userId: 'user-1',
       attempts: 0,
       lastError: null,
       status: 'PENDING',
+      leaseToken: 'lease-token-2',
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -142,20 +92,22 @@ test('DocumentsService.retryPendingDeletions updates status to FAILED on error a
   const completedStatus: string[] = [];
 
   const mockPendingRepo = {
-    findPending: async () => records,
-    findFailed: async () => [],
-    markRetrying: async () => {},
-    markCompleted: async (id: string) => {
+    claimBatch: async () => records,
+    markCompleted: async (id: string, token: string) => {
+      assert.ok(token);
       completedStatus.push(id);
+      return true;
     },
-    markFailed: async (id: string, error: string) => {
+    markFailed: async (id: string, token: string, error: string) => {
+      assert.ok(token);
       failedStatus[id] = { status: 'FAILED', error };
+      return 'FAILED';
     },
   } as any;
 
   const mockUploads = {
-    deleteFileByUrl: async (url: string) => {
-      if (url.includes('fail')) {
+    deleteOwnedObject: async (object: { bucket: string; objectKey: string }) => {
+      if (object.objectKey.includes('fail')) {
         throw new Error('B2 Connection Timed Out');
       }
     },

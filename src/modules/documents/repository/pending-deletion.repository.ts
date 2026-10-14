@@ -39,12 +39,16 @@ export class PendingDeletionRepository {
     tx: Prisma.TransactionClient,
     entries: PendingDeletionInput[],
   ): Promise<void> {
+    if (entries.length === 0) return;
     for (const entry of entries) {
-      await tx.pendingDeletion.upsert({
-        where: { bucket_objectKey: { bucket: entry.bucket, objectKey: entry.objectKey } },
-        create: { ...entry, status: 'PENDING' },
-        update: {},
+      const existing = await tx.pendingDeletion.findFirst({
+        where: { bucket: entry.bucket, objectKey: entry.objectKey },
       });
+      if (!existing) {
+        await tx.pendingDeletion.create({
+          data: { ...entry, status: 'PENDING' },
+        });
+      }
     }
   }
 

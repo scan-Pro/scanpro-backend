@@ -152,4 +152,28 @@ export class AccountDeletionWorkerService {
       },
     });
   }
+
+  private async _processFileJobsForUser(userId: string, limit = 50): Promise<void> {
+    const records = await this.pendingRepository.claimBatch(limit, leaseMs, userId);
+    for (const record of records) {
+      if (!record.leaseToken || !record.bucket || !record.objectKey) {
+        await this.pendingRepository.markFailed(
+          record.id,
+          record.leaseToken ?? '',
+          'Legacy deletion requires operator inventory reconciliation',
+        );
+        continue;
+      }
+      try {
+        await this.uploadsService.deleteOwnedObject({
+          bucket: record.bucket,
+          objectKey: record.objectKey,
+        });
+        await this.pendingRepository.markCompleted(record.id, record.leaseToken);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await this.pendingRepository.markFailed(record.id, record.leaseToken, message);
+      }
+    }
+  }
 }
