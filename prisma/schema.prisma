@@ -22,15 +22,18 @@ enum FilterType {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  passwordHash  String         @map("password_hash")
-  name          String
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
-  documents     Document[]
-  folders       Folder[]
-  refreshTokens RefreshToken[]
+  id                  String                 @id @default(uuid())
+  email               String                 @unique
+  passwordHash        String                 @map("password_hash")
+  name                String
+  lifecycleStatus     UserLifecycleStatus    @default(ACTIVE) @map("lifecycle_status")
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+  documents           Document[]
+  folders             Folder[]
+  refreshTokens       RefreshToken[]
+  uploadGrants        UploadGrant[]
+  accountDeletionJob  AccountDeletionJob?
 
   @@map("users")
 }
@@ -97,20 +100,70 @@ model DocumentPage {
 model PendingDeletion {
   id          String    @id @default(uuid())
   fileUrl     String    @map("file_url") @db.VarChar(500)
+  bucket      String    @default("") @db.VarChar(255)
+  objectKey   String    @default("") @map("object_key") @db.VarChar(1024)
   documentId  String?   @map("document_id")
   userId      String    @map("user_id")
   attempts    Int       @default(0)
   lastError   String?   @map("last_error") @db.Text
   status      DeletionStatus @default(PENDING) @map("status")
+  leaseToken  String?   @map("lease_token") @db.VarChar(36)
+  leaseUntil  DateTime? @map("lease_until")
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  @@index([status, createdAt])
+  @@index([status, leaseUntil, createdAt])
+  @@index([bucket, objectKey])
   @@map("pending_deletions")
+}
+
+enum UserLifecycleStatus {
+  ACTIVE
+  DELETING
+}
+
+model UploadGrant {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bucket      String    @db.VarChar(255)
+  objectKey   String    @map("object_key") @db.VarChar(1024)
+  expiresAt   DateTime  @map("expires_at")
+  cleanupDone Boolean   @default(false) @map("cleanup_done")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@unique([bucket, objectKey])
+  @@index([userId, expiresAt])
+  @@index([cleanupDone, expiresAt])
+  @@map("upload_grants")
+}
+
+model AccountDeletionJob {
+  id          String    @id @default(uuid())
+  userId      String    @unique @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      AccountDeletionStatus @default(PENDING)
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error") @db.Text
+  leaseToken  String?   @map("lease_token") @db.VarChar(36)
+  leaseUntil  DateTime? @map("lease_until")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, leaseUntil, createdAt])
+  @@map("account_deletion_jobs")
 }
 
 enum DeletionStatus {
   PENDING
   COMPLETED
   FAILED
+  DEAD_LETTER
+}
+
+enum AccountDeletionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  DEAD_LETTER
 }

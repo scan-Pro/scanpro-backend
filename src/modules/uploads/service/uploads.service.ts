@@ -1,95 +1,70 @@
-import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import crypto from 'crypto';
+import { prisma } from '../../../config/database.js';
 import { s3Client } from '../../../config/aws.js';
 import { env } from '../../../config/env.js';
 import { GetPresignedUrlDto, PresignedUrlResult } from '../dto/uploads.dto.js';
+import { getOwnedObjectKey, OwnedObjectKey } from '../../../common/utils/storage-url.util.js';
+import { lockActiveUser } from '../../users/repository/users.repository.js';
 
 export class UploadsService {
+  constructor(
+    private readonly client: S3Client = s3Client,
+    private readonly transaction: typeof prisma.$transaction = prisma.$transaction.bind(prisma),
+  ) {}
+
   async generatePresignedUploadUrl(userId: string, dto: GetPresignedUrlDto): Promise<PresignedUrlResult> {
     const fileExtension = dto.fileName.split('.').pop() || 'jpg';
-    const uniqueKey = `${dto.folder || 'documents'}/${userId}/${crypto.randomUUID()}.${fileExtension}`;
-    const expiresIn = 3600; // 1 hour
+    const folder = dto.folder || 'documents';
+    const uniqueKey = `${folder}/${userId}/${crypto.randomUUID()}.${fileExtension}`;
+    const expiresIn = 3600;
+    const expiresAt = new Date(Date.now() + expiresIn * 1000);
+    const bucket = env.AWS_S3_BUCKET;
 
-    // If AWS / Backblaze B2 credentials are provided, generate true presigned S3 URL
-    if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
+    const { uploadUrl, fileUrl } = await this.transaction(async (tx) => {
+      await lockActiveUser(tx, userId);
       const command = new PutObjectCommand({
-        Bucket: env.AWS_S3_BUCKET,
+        Bucket: bucket,
         Key: uniqueKey,
         ContentType: dto.fileType,
       });
+      const signedUrl = await getSignedUrl(this.client, command, { expiresIn });
+      const publicUrl = this._fileUrl(uniqueKey);
+      await tx.uploadGrant.create({
+        data: { userId, bucket, objectKey: uniqueKey, expiresAt },
+      });
+      return { uploadUrl: signedUrl, fileUrl: publicUrl };
+    });
 
-      const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
-
-      let fileUrl: string;
-      if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.includes('backblazeb2.com')) {
-        fileUrl = `https://s3.${env.AWS_REGION}.backblazeb2.com/${env.AWS_S3_BUCKET}/${uniqueKey}`;
-      } else if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.trim() !== '') {
-        fileUrl = `${env.AWS_ENDPOINT}/${env.AWS_S3_BUCKET}/${uniqueKey}`;
-      } else {
-        fileUrl = `https://s3.${env.AWS_REGION}.amazonaws.com/${env.AWS_S3_BUCKET}/${uniqueKey}`;
-      }
-
-      return {
-        uploadUrl,
-        fileUrl,
-        key: uniqueKey,
-        expiresIn,
-      };
-    }
-
-    // Local / Dev Fallback Mock URL
-    const mockUploadUrl = `http://localhost:${env.PORT}/api/v1/uploads/mock-direct-upload?key=${encodeURIComponent(uniqueKey)}`;
-    const mockFileUrl = `http://localhost:${env.PORT}/uploads/${uniqueKey}`;
-
-    return {
-      uploadUrl: mockUploadUrl,
-      fileUrl: mockFileUrl,
-      key: uniqueKey,
-      expiresIn,
-    };
+    return { uploadUrl, fileUrl, key: uniqueKey, expiresIn };
   }
 
-  /**
-   * Extracts the S3 object key from a full public URL and deletes the file from B2/S3.
-   * Safe to call even if credentials are not configured (no-op in that case).
-   */
-  async deleteFileByUrl(fileUrl: string): Promise<void> {
-    if (!env.AWS_ACCESS_KEY_ID || !env.AWS_SECRET_ACCESS_KEY || !env.AWS_S3_BUCKET) {
-      return; // No cloud storage configured
+  fileUrlForKey(objectKey: string): string {
+    if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.includes('backblazeb2.com')) {
+      return `https://s3.${env.AWS_REGION}.backblazeb2.com/${env.AWS_S3_BUCKET}/${objectKey}`;
     }
-
-    try {
-      const key = this._extractKeyFromUrl(fileUrl);
-      if (!key) {
-        console.warn('[UploadsService] Could not extract S3 key from URL:', fileUrl);
-        throw new Error(`Cannot extract key from file URL: ${fileUrl}`);
-      }
-
-      await s3Client.send(
-        new DeleteObjectCommand({
-          Bucket: env.AWS_S3_BUCKET,
-          Key: key,
-        })
-      );
-    } catch (err) {
-      console.error('[UploadsService] Failed to delete B2 file:', fileUrl, err);
-      throw err;
+    if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.trim() !== '') {
+      const endpoint = new URL(env.AWS_ENDPOINT.trim());
+      return `${endpoint.protocol}//${endpoint.host}/${env.AWS_S3_BUCKET}/${objectKey}`;
     }
+    return `https://s3.${env.AWS_REGION}.amazonaws.com/${env.AWS_S3_BUCKET}/${objectKey}`;
   }
 
-  private _extractKeyFromUrl(url: string): string | null {
-    try {
-      const parsed = new URL(url);
-      // pathname looks like  /<bucket>/<key>  or  /<key>  depending on endpoint style
-      const parts = parsed.pathname.replace(/^\//, '').split('/');
-      // If first segment matches bucket name, strip it
-      if (parts[0] === env.AWS_S3_BUCKET) {
-        return parts.slice(1).join('/');
-      }
-      return parts.join('/');
-    } catch {
-      return null;
-    }
+  async deleteOwnedObject(object: OwnedObjectKey): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: object.bucket, Key: object.objectKey }),
+    );
+  }
+
+  async deleteFileByUrl(fileUrl: string, userId: string): Promise<OwnedObjectKey> {
+    const object = getOwnedObjectKey(fileUrl, userId);
+    if (!object) throw new Error('File URL is not a generated object owned by this user.');
+    await this.deleteOwnedObject(object);
+    return object;
+  }
+
+  private _fileUrl(objectKey: string): string {
+    return this.fileUrlForKey(objectKey);
   }
 }

@@ -2,9 +2,21 @@ import { DocumentsRepository, DocumentWithRelations } from '../repository/docume
 import { PendingDeletionRepository } from '../repository/pending-deletion.repository.js';
 import { CreateDocumentDto, UpdateDocumentDto, QueryDocumentsDto, PaginatedDocumentsResult, CreateDocumentPageDto } from '../dto/documents.dto.js';
 import { NotFoundError } from '../../../common/errors/app-error.js';
-import { assertOwnStorageUrl } from '../../../common/utils/storage-url.util.js';
+import { assertOwnStorageUrl, getOwnedObjectKey } from '../../../common/utils/storage-url.util.js';
+import { prisma } from '../../../config/database.js';
+import { lockActiveUser } from '../../users/repository/users.repository.js';
 import { UploadsService } from '../../uploads/service/uploads.service.js';
 import { FoldersRepository } from '../../folders/repository/folders.repository.js';
+
+function dedupeObjects<T extends { bucket: string; objectKey: string }>(objects: T[]): T[] {
+  const seen = new Set<string>();
+  return objects.filter((object) => {
+    const key = `${object.bucket}\0${object.objectKey}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 export class DocumentsService {
   constructor(
@@ -17,7 +29,10 @@ export class DocumentsService {
   async createDocument(userId: string, dto: CreateDocumentDto): Promise<DocumentWithRelations> {
     await this.assertFolderOwnership(dto.folderId, userId);
     this.assertOwnFileUrls(userId, dto);
-    return this.documentsRepository.createDocument(userId, dto);
+    return prisma.$transaction(async (tx) => {
+      await lockActiveUser(tx, userId);
+      return this.documentsRepository.createDocumentInTransaction(tx, userId, dto);
+    });
   }
 
   async getDocuments(
@@ -61,98 +76,67 @@ export class DocumentsService {
     userId: string,
     dto: UpdateDocumentDto
   ): Promise<DocumentWithRelations> {
-    await this.getDocumentById(id, userId);
     await this.assertFolderOwnership(dto.folderId, userId);
     this.assertOwnFileUrls(userId, dto);
-    return this.documentsRepository.updateDocument(id, userId, dto);
-  }
-
-  async deleteDocument(id: string, userId: string): Promise<void> {
-    const document = await this.getDocumentById(id, userId);
-
-    // Collect all B2 file URLs to delete (thumbnail, pdf, each page image + thumbnail)
-    const urlsToDelete: string[] = [];
-    if (document.thumbnailUrl) urlsToDelete.push(document.thumbnailUrl);
-    if (document.pdfUrl) urlsToDelete.push(document.pdfUrl);
-    if (document.pages) {
-      for (const page of document.pages) {
-        if (page.imageUrl) urlsToDelete.push(page.imageUrl);
-        if (page.thumbnailUrl) urlsToDelete.push(page.thumbnailUrl);
-      }
-    }
-
-    // Persist pending deletions so failed B2 deletes can be retried later
-    const cloudUrls = urlsToDelete.filter((u) => u.startsWith('http'));
-    if (cloudUrls.length > 0) {
-      await this.pendingDeletionRepository.createMany(
-        cloudUrls.map((url) => ({ fileUrl: url, documentId: id, userId }))
-      );
-    }
-
-    // Delete DB record
-    await this.documentsRepository.deleteDocument(id, userId);
-
-    // Fire-and-forget B2 cleanup — failures are logged and recorded for retry
-    if (cloudUrls.length > 0) {
-      this._cleanupB2Files(cloudUrls, id);
-    }
-  }
-
-  /**
-   * Attempts to delete B2 files, logging failures and updating the
-   * pending-deletion records so failed deletes can be retried later.
-   */
-  private _cleanupB2Files(urls: string[], documentId: string): void {
-    Promise.allSettled(
-      urls.map((url) => this.uploadsService.deleteFileByUrl(url))
-    ).then(async (results) => {
-      for (let i = 0; i < results.length; i++) {
-        const result = results[i];
-        const url = urls[i];
-        if (result.status === 'fulfilled') {
-          await this.pendingDeletionRepository.markCompletedByUrl(url);
-        } else {
-          const errorMsg = (result as PromiseRejectedResult).reason?.message ?? 'Unknown error';
-          console.warn(
-            `[DocumentsService] B2 deletion failed for document ${documentId} (${url}):`,
-            errorMsg
-          );
-          await this.pendingDeletionRepository.markFailedByUrl(url, errorMsg);
-        }
-      }
+    return prisma.$transaction(async (tx) => {
+      await lockActiveUser(tx, userId);
+      const existing = await tx.document.findFirst({
+        where: { id, userId },
+        select: { id: true },
+      });
+      if (!existing) throw new NotFoundError('Document not found', 'DOCUMENT_NOT_FOUND');
+      return this.documentsRepository.updateDocumentInTransaction(tx, id, userId, dto);
     });
   }
 
-  /**
-   * Retries pending/failed B2 deletions. Can be called by a cron job or
-   * on startup. Returns the number of deletions processed.
-   */
-  async retryPendingDeletions(limit: number = 50): Promise<{ processed: number; succeeded: number; failed: number }> {
-    const pending = await this.pendingDeletionRepository.findPending(limit);
-    const failed = await this.pendingDeletionRepository.findFailed(limit);
-    const toRetry = [...pending, ...failed].slice(0, limit);
+  async deleteDocument(id: string, userId: string): Promise<void> {
+    await prisma.$transaction(async (tx) => {
+      await lockActiveUser(tx, userId);
+      const document = await tx.document.findFirst({
+        where: { id, userId },
+        include: { pages: true },
+      });
+      if (!document) throw new NotFoundError('Document not found', 'DOCUMENT_NOT_FOUND');
+      const urls = [document.thumbnailUrl, document.pdfUrl, ...document.pages.flatMap((page) => [page.imageUrl, page.thumbnailUrl])]
+        .filter((url): url is string => Boolean(url));
+      const objectKeys = dedupeObjects(urls.map((url) => getOwnedObjectKey(url, userId)).filter((value): value is NonNullable<typeof value> => value !== null));
+      await this.pendingDeletionRepository.createManyInTransaction(
+        tx,
+        objectKeys.map((object) => ({
+          ...object,
+          fileUrl: this.uploadsService.fileUrlForKey(object.objectKey),
+          documentId: id,
+          userId,
+        })),
+      );
+      await tx.document.deleteMany({ where: { id, userId } });
+    });
+  }
 
+  async retryPendingDeletions(limit = 50): Promise<{ processed: number; succeeded: number; failed: number }> {
+    const records = await this.pendingDeletionRepository.claimBatch(limit);
     let succeeded = 0;
-    let failedCount = 0;
-
-    for (const record of toRetry) {
-      await this.pendingDeletionRepository.markRetrying(record.id);
-      try {
-        await this.uploadsService.deleteFileByUrl(record.fileUrl);
-        await this.pendingDeletionRepository.markCompleted(record.id);
-        succeeded++;
-      } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : String(err);
-        await this.pendingDeletionRepository.markFailed(record.id, errorMessage);
-        console.error(
-          `[DocumentsService] Retry failed for B2 deletion ${record.id} (${record.fileUrl}):`,
-          errorMessage
+    let failed = 0;
+    for (const record of records) {
+      if (!record.leaseToken || !record.bucket || !record.objectKey) {
+        await this.pendingDeletionRepository.markFailed(
+          record.id,
+          record.leaseToken ?? '',
+          'Legacy deletion requires operator inventory reconciliation',
         );
-        failedCount++;
+        failed++;
+        continue;
+      }
+      try {
+        await this.uploadsService.deleteOwnedObject({ bucket: record.bucket, objectKey: record.objectKey });
+        if (await this.pendingDeletionRepository.markCompleted(record.id, record.leaseToken)) succeeded++;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const status = await this.pendingDeletionRepository.markFailed(record.id, record.leaseToken, message);
+        if (status) failed++;
       }
     }
-
-    return { processed: toRetry.length, succeeded, failed: failedCount };
+    return { processed: records.length, succeeded, failed };
   }
 
   async toggleFavorite(id: string, userId: string, isFavorite: boolean): Promise<DocumentWithRelations> {

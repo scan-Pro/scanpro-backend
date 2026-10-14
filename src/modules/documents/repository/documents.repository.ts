@@ -1,4 +1,5 @@
 import { prisma } from '../../../config/database.js';
+import { Prisma } from '@prisma/client';
 import { Document, DocumentPage } from '@prisma/client';
 import { CreateDocumentDto, UpdateDocumentDto, QueryDocumentsDto } from '../dto/documents.dto.js';
 import { NotFoundError } from '../../../common/errors/app-error.js';
@@ -15,12 +16,18 @@ const documentIncludeFull = {
 
 export class DocumentsRepository {
   async createDocument(userId: string, data: CreateDocumentDto): Promise<DocumentWithRelations> {
+    return prisma.$transaction((tx) => this.createDocumentInTransaction(tx, userId, data));
+  }
+
+  async createDocumentInTransaction(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    data: CreateDocumentDto,
+  ): Promise<DocumentWithRelations> {
     if (data.id) {
-      const existing = await prisma.document.findFirst({
-        where: { id: data.id, userId },
-      });
+      const existing = await tx.document.findFirst({ where: { id: data.id, userId } });
       if (existing) {
-        return this.updateDocument(data.id, userId, {
+        return this.updateDocumentInTransaction(tx, data.id, userId, {
           title: data.title,
           folderId: data.folderId,
           thumbnailUrl: data.thumbnailUrl,
@@ -32,7 +39,7 @@ export class DocumentsRepository {
       }
     }
 
-    return prisma.document.create({
+    return tx.document.create({
       data: {
         ...(data.id ? { id: data.id } : {}),
         userId,
@@ -116,7 +123,15 @@ export class DocumentsRepository {
     userId: string,
     data: UpdateDocumentDto
   ): Promise<DocumentWithRelations> {
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction((tx) => this.updateDocumentInTransaction(tx, id, userId, data));
+  }
+
+  async updateDocumentInTransaction(
+    tx: Prisma.TransactionClient,
+    id: string,
+    userId: string,
+    data: UpdateDocumentDto,
+  ): Promise<DocumentWithRelations> {
       const { count } = await tx.document.updateMany({
         where: { id, userId },
         data: {
@@ -158,10 +173,9 @@ export class DocumentsRepository {
         }
       }
 
-      return tx.document.findUniqueOrThrow({
-        where: { id },
-        include: documentIncludeFull,
-      });
+    return tx.document.findUniqueOrThrow({
+      where: { id },
+      include: documentIncludeFull,
     });
   }
 
