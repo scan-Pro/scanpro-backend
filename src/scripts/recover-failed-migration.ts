@@ -58,9 +58,10 @@ async function recover(): Promise<void> {
       await prisma.$executeRawUnsafe(`ALTER TABLE \`pending_deletions\` ${dropClause}`);
     }
 
-    // 3. Drop tables upload_grants and account_deletion_jobs if partially created
+    // 3. Drop tables upload_grants, account_deletion_jobs, document_deletion_tombstones if partially created
     await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS \`account_deletion_jobs\``);
     await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS \`upload_grants\``);
+    await prisma.$executeRawUnsafe(`DROP TABLE IF EXISTS \`document_deletion_tombstones\``);
 
     // 4. Remove failed record from _prisma_migrations so Prisma can re-apply the corrected migration
     console.log('Removing failed migration record from _prisma_migrations...');

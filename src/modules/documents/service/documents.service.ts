@@ -80,6 +80,10 @@ export class DocumentsService {
     this.assertOwnFileUrls(userId, dto);
     return prisma.$transaction(async (tx) => {
       await lockActiveUser(tx, userId);
+      const tombstone = await tx.documentDeletionTombstone.findUnique({
+        where: { userId_documentId: { userId, documentId: id } },
+      });
+      if (tombstone) throw new NotFoundError('Document was deleted', 'DOCUMENT_DELETED');
       const existing = await tx.document.findFirst({
         where: { id, userId },
         select: { id: true },
@@ -100,6 +104,11 @@ export class DocumentsService {
       const urls = [document.thumbnailUrl, document.pdfUrl, ...document.pages.flatMap((page) => [page.imageUrl, page.thumbnailUrl])]
         .filter((url): url is string => Boolean(url));
       const objectKeys = dedupeObjects(urls.map((url) => getOwnedObjectKey(url, userId)).filter((value): value is NonNullable<typeof value> => value !== null));
+      await tx.documentDeletionTombstone.upsert({
+        where: { userId_documentId: { userId, documentId: id } },
+        create: { userId, documentId: id },
+        update: {},
+      });
       await this.pendingDeletionRepository.createManyInTransaction(
         tx,
         objectKeys.map((object) => ({

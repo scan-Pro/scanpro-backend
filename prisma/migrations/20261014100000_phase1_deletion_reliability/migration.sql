@@ -2,8 +2,8 @@ ALTER TABLE `users`
   ADD COLUMN `lifecycle_status` ENUM('ACTIVE', 'DELETING') NOT NULL DEFAULT 'ACTIVE';
 
 ALTER TABLE `pending_deletions`
-  ADD COLUMN `bucket` VARCHAR(100) NOT NULL DEFAULT '',
-  ADD COLUMN `object_key` VARCHAR(500) NOT NULL DEFAULT '',
+  ADD COLUMN `bucket` VARCHAR(100) NULL,
+  ADD COLUMN `object_key` VARCHAR(500) NULL,
   ADD COLUMN `lease_token` VARCHAR(36) NULL,
   ADD COLUMN `lease_until` DATETIME(3) NULL,
   MODIFY `status` ENUM('PENDING', 'COMPLETED', 'FAILED', 'DEAD_LETTER') NOT NULL DEFAULT 'PENDING';
@@ -17,6 +17,17 @@ CREATE INDEX `pending_deletions_status_lease_created_idx`
   ON `pending_deletions`(`status`, `lease_until`, `created_at`);
 CREATE INDEX `pending_deletions_bucket_object_idx`
   ON `pending_deletions`(`bucket`, `object_key`);
+
+CREATE TABLE `document_deletion_tombstones` (
+  `id` VARCHAR(191) NOT NULL,
+  `user_id` VARCHAR(191) NOT NULL,
+  `document_id` VARCHAR(191) NOT NULL,
+  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE INDEX `document_deletion_tombstones_user_document_key`(`user_id`, `document_id`),
+  PRIMARY KEY (`id`),
+  CONSTRAINT `document_deletion_tombstones_user_id_fkey`
+    FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE `upload_grants` (
   `id` VARCHAR(191) NOT NULL,

@@ -128,7 +128,14 @@ export class PendingDeletionRepository {
   async findUnfinishedForUser(userId: string) {
     return prisma.pendingDeletion.findMany({
       where: { userId, status: { not: 'COMPLETED' } },
-      select: { bucket: true, objectKey: true },
+      select: { id: true, bucket: true, objectKey: true, status: true },
+    });
+  }
+
+  async markGrantCleanupDone(bucket: string, objectKey: string): Promise<void> {
+    await prisma.uploadGrant.updateMany({
+      where: { bucket, objectKey, cleanupDone: false },
+      data: { cleanupDone: true },
     });
   }
 

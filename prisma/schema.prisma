@@ -34,6 +34,7 @@ model User {
   refreshTokens       RefreshToken[]
   uploadGrants        UploadGrant[]
   accountDeletionJob  AccountDeletionJob?
+  documentTombstones  DocumentDeletionTombstone[]
 
   @@map("users")
 }
@@ -100,8 +101,8 @@ model DocumentPage {
 model PendingDeletion {
   id          String    @id @default(uuid())
   fileUrl     String    @map("file_url") @db.VarChar(500)
-  bucket      String    @default("") @db.VarChar(100)
-  objectKey   String    @default("") @map("object_key") @db.VarChar(500)
+  bucket      String?   @db.VarChar(100)
+  objectKey   String?   @map("object_key") @db.VarChar(500)
   documentId  String?   @map("document_id")
   userId      String    @map("user_id")
   attempts    Int       @default(0)
@@ -120,6 +121,17 @@ model PendingDeletion {
 enum UserLifecycleStatus {
   ACTIVE
   DELETING
+}
+
+model DocumentDeletionTombstone {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documentId String  @map("document_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([userId, documentId])
+  @@map("document_deletion_tombstones")
 }
 
 model UploadGrant {

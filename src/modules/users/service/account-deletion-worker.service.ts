@@ -35,19 +35,38 @@ export class AccountDeletionWorkerService {
         await this._queueAllOwnedObjects(job.userId);
         await this._processFileJobsForUser(job.userId);
         const pending = await this.pendingRepository.findUnfinishedForUser(job.userId);
-        if (pending.length > 0) {
-          await this._releaseJob(job.id, job.leaseToken, `${pending.length} object cleanup job(s) remain.`);
+        const unfinishedGrants = await prisma.uploadGrant.count({
+          where: { userId: job.userId, cleanupDone: false },
+        });
+        if (pending.length > 0 || unfinishedGrants > 0) {
+          await this._releaseJob(
+            job.id,
+            job.leaseToken,
+            `${pending.length} object cleanup job(s) and ${unfinishedGrants} upload grant(s) remain.`,
+          );
           continue;
         }
 
-        await prisma.$transaction(async (tx) => {
+        const finalized = await prisma.$transaction(async (tx) => {
           const current = await tx.accountDeletionJob.findFirst({
             where: { id: job.id, leaseToken: job.leaseToken, status: 'PENDING' },
           });
-          if (!current) return;
+          if (!current) return false;
+          const remainingFiles = await tx.pendingDeletion.count({
+            where: { userId: job.userId, status: { not: 'COMPLETED' } },
+          });
+          const remainingGrants = await tx.uploadGrant.count({
+            where: { userId: job.userId, cleanupDone: false },
+          });
+          if (remainingFiles > 0 || remainingGrants > 0) return false;
+          await tx.accountDeletionJob.updateMany({
+            where: { id: job.id, leaseToken: job.leaseToken, status: 'PENDING' },
+            data: { status: 'COMPLETED', leaseToken: null, leaseUntil: null },
+          });
           await tx.user.deleteMany({ where: { id: job.userId, lifecycleStatus: 'DELETING' } });
+          return true;
         });
-        completed++;
+        if (finalized) completed++;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await this._releaseJob(job.id, job.leaseToken, message, true);

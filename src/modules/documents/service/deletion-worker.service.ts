@@ -39,8 +39,14 @@ export class DeletionWorkerService {
           `[DeletionWorkerService] Processed ${result.processed} pending deletion(s): ${result.succeeded} succeeded, ${result.failed} failed`
         );
       }
-    } catch (err) {
-      console.error('[DeletionWorkerService] Error during deletion retry sweep:', err);
+    } catch (err: any) {
+      if (err?.code === 'P2022') {
+        console.warn(
+          `[DeletionWorkerService] Database migration pending: column '${err.meta?.column ?? 'unknown'}' not found in database. Please run 'npx prisma migrate deploy'.`
+        );
+      } else {
+        console.error('[DeletionWorkerService] Error during deletion retry sweep:', err);
+      }
     } finally {
       this.isRunning = false;
       this.timer = setTimeout(() => this._tick(), this.intervalMs);

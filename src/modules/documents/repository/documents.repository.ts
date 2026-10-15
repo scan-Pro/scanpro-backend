@@ -25,6 +25,12 @@ export class DocumentsRepository {
     data: CreateDocumentDto,
   ): Promise<DocumentWithRelations> {
     if (data.id) {
+      const tombstone = await tx.documentDeletionTombstone.findUnique({
+        where: { userId_documentId: { userId, documentId: data.id } },
+      });
+      if (tombstone) {
+        throw new NotFoundError('Deleted document IDs cannot be reused', 'DOCUMENT_DELETED');
+      }
       const existing = await tx.document.findFirst({ where: { id: data.id, userId } });
       if (existing) {
         return this.updateDocumentInTransaction(tx, data.id, userId, {
