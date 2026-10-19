@@ -199,7 +199,7 @@ export class AccountDeletionService {
         if (!claim.bucket || !claim.objectKey) {
           throw new Error('Cleanup job has no exact bucket/key; operator inventory required');
         }
-        await this.uploadsService.deleteObject(claim.bucket, claim.objectKey);
+        await this.uploadsService.deleteObject(claim.bucket, claim.objectKey, claim.userId);
         const acknowledged = await prisma.$transaction(async (tx) => {
           const result = await tx.pendingDeletion.updateMany({
             where: { id: claim.id, status: 'PROCESSING', claimToken: claim.claimToken },
