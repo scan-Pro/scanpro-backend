@@ -34,15 +34,15 @@ export class UploadsService {
       throw new ForbiddenError('Unsupported storage folder', 'INVALID_STORAGE_FOLDER');
     }
 
-    const candidateExtension = (dto.fileName.split(/[\\/]/).pop() ?? '').split('.').pop()?.toLowerCase() ?? '';
-    const fallbackExtension = dto.fileType === 'application/pdf'
+    // Derive the object extension from the validated MIME type, never from a
+    // client-supplied filename/path.
+    const extension = dto.fileType === 'application/pdf'
       ? 'pdf'
       : dto.fileType === 'image/png'
         ? 'png'
         : dto.fileType === 'image/webp'
           ? 'webp'
           : 'jpg';
-    const extension = /^[a-z0-9]{1,8}$/.test(candidateExtension) ? candidateExtension : fallbackExtension;
     const uniqueKey = `${folder}/${userId}/${crypto.randomUUID()}.${extension}`;
     const expiresIn = 3600;
     const expiresAt = new Date(Date.now() + expiresIn * 1000);
@@ -162,7 +162,7 @@ export class UploadsService {
     return { bucket: env.AWS_S3_BUCKET, key };
   }
 
-  async deleteObject(bucket: string, key: string): Promise<void> {
+  async deleteObject(bucket: string, key: string, expectedUserId?: string): Promise<void> {
     if (bucket !== env.AWS_S3_BUCKET) {
       throw new ForbiddenError('Refusing to delete from an unconfigured bucket', 'INVALID_STORAGE_BUCKET');
     }
@@ -171,10 +171,11 @@ export class UploadsService {
       segments.length !== 3 ||
       !allowedFolders.has(segments[0]) ||
       !segments[1] ||
+      (expectedUserId !== undefined && segments[1] !== expectedUserId) ||
       !segments[2] ||
       segments.some((part) => !part || part === '.' || part === '..')
     ) {
-      throw new ForbiddenError('Refusing to delete a non-canonical object key', 'INVALID_OBJECT_KEY');
+      throw new ForbiddenError('Refusing to delete a non-canonical or unowned object key', 'INVALID_OBJECT_KEY');
     }
     // S3 DeleteObject is idempotent for a missing key. Intentionally propagate
     // errors so the durable worker can retry instead of falsely marking success.
