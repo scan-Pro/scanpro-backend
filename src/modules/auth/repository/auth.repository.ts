@@ -1,6 +1,7 @@
 import { prisma } from '../../../config/database.js';
 import { User, RefreshToken } from '@prisma/client';
 import { UnauthorizedError } from '../../../common/errors/app-error.js';
+import { assertUserActive } from '../../../common/utils/account-lifecycle.util.js';
 
 export class AuthRepository {
   async findUserByEmail(email: string): Promise<User | null> {
@@ -30,12 +31,11 @@ export class AuthRepository {
     tokenHash: string,
     expiresAt: Date,
   ): Promise<RefreshToken> {
-    return prisma.refreshToken.create({
-      data: {
-        userId,
-        tokenHash,
-        expiresAt,
-      },
+    return prisma.$transaction(async (tx) => {
+      await assertUserActive(tx, userId);
+      return tx.refreshToken.create({
+        data: { userId, tokenHash, expiresAt },
+      });
     });
   }
 
@@ -75,6 +75,7 @@ export class AuthRepository {
     expiresAt: Date;
   }): Promise<void> {
     await prisma.$transaction(async (tx) => {
+      await assertUserActive(tx, data.userId);
       await tx.refreshToken.create({
         data: {
           userId: data.userId,
