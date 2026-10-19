@@ -560,6 +560,6 @@ test('example JWT secrets are placeholders and deployment avoids db push', async
   assert.doesNotMatch(baselineSql, /\bDROP TABLE\b/i);
   assert.match(baselineMarker, /diff was empty/i);
   const schema = await readFile(new URL('../prisma/schema.prisma', import.meta.url), 'utf8');
-  assert.match(schema, /refreshTokens RefreshToken\[\]/);
+  assert.match(schema, /refreshTokens\s+RefreshToken\[\]/);
   assert.match(schema, /onDelete: Cascade/);
 });
