@@ -1,6 +1,17 @@
 import { prisma } from '../../../config/database.js';
 import { User, RefreshToken } from '@prisma/client';
-import { UnauthorizedError } from '../../../common/errors/app-error.js';
+import { ForbiddenError, NotFoundError, UnauthorizedError } from '../../../common/errors/app-error.js';
+import type { Prisma } from '@prisma/client';
+
+async function lockActiveUser(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  const users = await tx.$queryRaw<Array<{ id: string; lifecycle_status: string }>>\`
+    SELECT id, lifecycle_status FROM users WHERE id = \${userId} FOR UPDATE
+  \`;
+  if (!users.length) throw new NotFoundError('User not found', 'USER_NOT_FOUND');
+  if (users[0].lifecycle_status !== 'ACTIVE') {
+    throw new ForbiddenError('Account deletion is in progress', 'ACCOUNT_DELETING');
+  }
+}
 
 export class AuthRepository {
   async findUserByEmail(email: string): Promise<User | null> {
@@ -30,12 +41,11 @@ export class AuthRepository {
     tokenHash: string,
     expiresAt: Date,
   ): Promise<RefreshToken> {
-    return prisma.refreshToken.create({
-      data: {
-        userId,
-        tokenHash,
-        expiresAt,
-      },
+    return prisma.$transaction(async (tx) => {
+      await lockActiveUser(tx, userId);
+      return tx.refreshToken.create({
+        data: { userId, tokenHash, expiresAt },
+      });
     });
   }
 
@@ -75,6 +85,7 @@ export class AuthRepository {
     expiresAt: Date;
   }): Promise<void> {
     await prisma.$transaction(async (tx) => {
+      await lockActiveUser(tx, data.userId);
       await tx.refreshToken.create({
         data: {
           userId: data.userId,
