@@ -95,7 +95,7 @@ export class AccountDeletionService {
           }
           const grantSafeAt = new Date(grant.expiresAt.getTime() + EXPIRY_MARGIN_MS);
           addTarget(grant.fileUrl, grant.bucket, grant.objectKey,
-            grantSafeAt > legacySafetyDeadline ? grantSafeAt : legacySafetyDeadline);
+            grantSafeAt > now ? grantSafeAt : now);
         } catch (error) {
           failed.set(`grant:${grant.id}`, {
             fileUrl: grant.fileUrl,
@@ -116,10 +116,12 @@ export class AccountDeletionService {
             const matchedGrants = grants.filter(
               (grant) => grant.bucket === target.bucket && grant.objectKey === target.key,
             );
-            const expirySafeAt = matchedGrants.reduce((latest, grant) => {
-              const safeAt = new Date(grant.expiresAt.getTime() + EXPIRY_MARGIN_MS);
-              return safeAt > latest ? safeAt : latest;
-            }, legacySafetyDeadline);
+            const expirySafeAt = matchedGrants.length === 0
+              ? legacySafetyDeadline
+              : matchedGrants.reduce((latest, grant) => {
+                  const safeAt = new Date(grant.expiresAt.getTime() + EXPIRY_MARGIN_MS);
+                  return safeAt > latest ? safeAt : latest;
+                }, now);
             addTarget(fileUrl, target.bucket, target.key, expirySafeAt);
           } catch (error) {
             failed.set(`url:${fileUrl}`, {
