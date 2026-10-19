@@ -28,8 +28,26 @@ export class AccountDeletionService {
    * object, creates durable cleanup jobs, and only then returns. User metadata
    * remains present until the worker verifies cleanup completion.
    */
-  async requestDeletion(userId: string): Promise<{ status: 'DELETING'; jobId: string }> {
-    return prisma.$transaction(async (tx) => {
+  async requestDeletion(userId: string): Promise<
+    | { status: 'DELETING'; jobId: string }
+    | { status: 'COMPLETED'; jobId?: string; completedAt: Date }
+  > {
+    const completedResult = async () => {
+      const receipt = await prisma.accountDeletionReceipt.findUnique({ where: { userId } });
+      if (!receipt) return null;
+      const job = await prisma.accountDeletionJob.findUnique({ where: { userId }, select: { id: true } });
+      return {
+        status: 'COMPLETED' as const,
+        ...(job ? { jobId: job.id } : {}),
+        completedAt: receipt.completedAt,
+      };
+    };
+
+    const priorCompletion = await completedResult();
+    if (priorCompletion) return priorCompletion;
+
+    try {
+      return await prisma.$transaction(async (tx) => {
       const lifecycle = await lockUserLifecycle(tx, userId);
       const existingJob = await tx.accountDeletionJob.findUnique({ where: { userId } });
       if (lifecycle === 'DELETING' && existingJob) {
@@ -184,7 +202,16 @@ export class AccountDeletionService {
         operatorReviewTargets: failed.size,
       });
       return { status: 'DELETING' as const, jobId: job.id };
-    });
+      });
+    } catch (error) {
+      // A repeated DELETE may race the finalizer: if the user row disappears
+      // after our receipt preflight, convert that race into an idempotent success.
+      if (error instanceof NotFoundError) {
+        const completed = await completedResult();
+        if (completed) return completed;
+      }
+      throw error;
+    }
   }
 
   /** Claim and process due deletion jobs with MySQL row locks and per-claim fencing. */
