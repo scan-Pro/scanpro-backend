@@ -3,6 +3,7 @@ import { UsersRepository } from '../repository/users.repository.js';
 import { UpdateProfileDto, ChangePasswordDto } from '../dto/users.dto.js';
 import { NotFoundError, UnauthorizedError } from '../../../common/errors/app-error.js';
 import { AuthRepository } from '../../auth/repository/auth.repository.js';
+import { UploadsService } from '../../uploads/service/uploads.service.js';
 
 export interface UserProfile {
   id: string;
@@ -15,7 +16,8 @@ export interface UserProfile {
 export class UsersService {
   constructor(
     private readonly usersRepository: UsersRepository = new UsersRepository(),
-    private readonly authRepository: AuthRepository = new AuthRepository()
+    private readonly authRepository: AuthRepository = new AuthRepository(),
+    private readonly uploadsService: UploadsService = new UploadsService()
   ) {}
 
   async getProfile(userId: string): Promise<UserProfile> {
@@ -79,6 +81,9 @@ export class UsersService {
       throw new NotFoundError('User not found', 'USER_NOT_FOUND');
     }
 
-    await this.usersRepository.deleteUser(userId);
+    await this.usersRepository.beginAccountDeletion(
+      userId,
+      (url, ownerId) => this.uploadsService.resolveOwnedStorageUrl(url, ownerId)
+    );
   }
 }
