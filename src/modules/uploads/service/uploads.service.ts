@@ -1,92 +1,188 @@
-import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import crypto from 'crypto';
+import { prisma } from '../../../config/database.js';
+import { assertUserActive } from '../../../common/utils/account-lifecycle.util.js';
+import { ForbiddenError } from '../../../common/errors/app-error.js';
 import { s3Client } from '../../../config/aws.js';
 import { env } from '../../../config/env.js';
 import { GetPresignedUrlDto, PresignedUrlResult } from '../dto/uploads.dto.js';
 
-export class UploadsService {
-  async generatePresignedUploadUrl(userId: string, dto: GetPresignedUrlDto): Promise<PresignedUrlResult> {
-    const fileExtension = dto.fileName.split('.').pop() || 'jpg';
-    const uniqueKey = `${dto.folder || 'documents'}/${userId}/${crypto.randomUUID()}.${fileExtension}`;
-    const expiresIn = 3600; // 1 hour
+export interface StorageObjectTarget {
+  bucket: string;
+  key: string;
+}
 
-    // If AWS / Backblaze B2 credentials are provided, generate true presigned S3 URL
-    if (env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) {
-      const command = new PutObjectCommand({
+const allowedFolders = new Set(['documents', 'pages', 'thumbnails', 'pdfs']);
+
+export class UploadsService {
+  constructor(private readonly client: S3Client = s3Client) {}
+
+  private publicFileUrl(key: string): string {
+    if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.includes('backblazeb2.com')) {
+      return `https://s3.${env.AWS_REGION}.backblazeb2.com/${env.AWS_S3_BUCKET}/${key}`;
+    }
+    if (env.AWS_ENDPOINT.trim() !== '') {
+      return `${env.AWS_ENDPOINT.replace(/\/$/, '')}/${env.AWS_S3_BUCKET}/${key}`;
+    }
+    return `https://s3.${env.AWS_REGION}.amazonaws.com/${env.AWS_S3_BUCKET}/${key}`;
+  }
+
+  async generatePresignedUploadUrl(userId: string, dto: GetPresignedUrlDto): Promise<PresignedUrlResult> {
+    const folder = dto.folder || 'documents';
+    if (!allowedFolders.has(folder)) {
+      throw new ForbiddenError('Unsupported storage folder', 'INVALID_STORAGE_FOLDER');
+    }
+
+    const candidateExtension = (dto.fileName.split(/[\\/]/).pop() ?? '').split('.').pop()?.toLowerCase() ?? '';
+    const fallbackExtension = dto.fileType === 'application/pdf'
+      ? 'pdf'
+      : dto.fileType === 'image/png'
+        ? 'png'
+        : dto.fileType === 'image/webp'
+          ? 'webp'
+          : 'jpg';
+    const extension = /^[a-z0-9]{1,8}$/.test(candidateExtension) ? candidateExtension : fallbackExtension;
+    const uniqueKey = `${folder}/${userId}/${crypto.randomUUID()}.${extension}`;
+    const expiresIn = 3600;
+    const expiresAt = new Date(Date.now() + expiresIn * 1000);
+    const fileUrl = this.publicFileUrl(uniqueKey);
+
+    // Persist the grant under the same account lifecycle lock used by deletion
+    // before the URL is returned. If URL signing fails, the durable grant is
+    // still available for safe expiry-aware cleanup.
+    await prisma.$transaction(async (tx) => {
+      await assertUserActive(tx, userId);
+      await tx.uploadGrant.create({
+        data: {
+          userId,
+          bucket: env.AWS_S3_BUCKET,
+          objectKey: uniqueKey,
+          fileUrl,
+          expiresAt,
+          cleanupDone: false,
+        },
+      });
+    });
+
+    const uploadUrl = await getSignedUrl(
+      this.client,
+      new PutObjectCommand({
         Bucket: env.AWS_S3_BUCKET,
         Key: uniqueKey,
         ContentType: dto.fileType,
-      });
+      }),
+      { expiresIn },
+    );
 
-      const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn });
-
-      let fileUrl: string;
-      if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.includes('backblazeb2.com')) {
-        fileUrl = `https://s3.${env.AWS_REGION}.backblazeb2.com/${env.AWS_S3_BUCKET}/${uniqueKey}`;
-      } else if (env.AWS_ENDPOINT && env.AWS_ENDPOINT.trim() !== '') {
-        fileUrl = `${env.AWS_ENDPOINT}/${env.AWS_S3_BUCKET}/${uniqueKey}`;
-      } else {
-        fileUrl = `https://s3.${env.AWS_REGION}.amazonaws.com/${env.AWS_S3_BUCKET}/${uniqueKey}`;
-      }
-
-      return {
-        uploadUrl,
-        fileUrl,
-        key: uniqueKey,
-        expiresIn,
-      };
-    }
-
-    // Local / Dev Fallback Mock URL
-    const mockUploadUrl = `http://localhost:${env.PORT}/api/v1/uploads/mock-direct-upload?key=${encodeURIComponent(uniqueKey)}`;
-    const mockFileUrl = `http://localhost:${env.PORT}/uploads/${uniqueKey}`;
-
-    return {
-      uploadUrl: mockUploadUrl,
-      fileUrl: mockFileUrl,
-      key: uniqueKey,
-      expiresIn,
-    };
+    return { uploadUrl, fileUrl, key: uniqueKey, expiresIn };
   }
 
   /**
-   * Extracts the S3 object key from a full public URL and deletes the file from B2/S3.
-   * Safe to call even if credentials are not configured (no-op in that case).
+   * Accept only URLs matching this application's configured public-object URL
+   * format and an exact owner path. Never trust a caller-provided bucket/key.
    */
-  async deleteFileByUrl(fileUrl: string): Promise<void> {
-    if (!env.AWS_ACCESS_KEY_ID || !env.AWS_SECRET_ACCESS_KEY || !env.AWS_S3_BUCKET) {
-      return; // No cloud storage configured
-    }
-
+  resolveOwnedObjectUrl(fileUrl: string, userId: string): StorageObjectTarget {
+    let actual: URL;
+    let expectedBase: URL;
     try {
-      const key = this._extractKeyFromUrl(fileUrl);
-      if (!key) return;
-
-      await s3Client.send(
-        new DeleteObjectCommand({
-          Bucket: env.AWS_S3_BUCKET,
-          Key: key,
-        })
-      );
-    } catch (err) {
-      // Log but don't rethrow — a failed B2 delete must not block the DB delete
-      console.error('[UploadsService] Failed to delete B2 file:', fileUrl, err);
+      actual = new URL(fileUrl);
+      expectedBase = new URL(this.publicFileUrl('placeholder'));
+    } catch {
+      throw new ForbiddenError('Invalid cloud object URL', 'INVALID_FILE_URL');
     }
+
+    const expectedPrefix = `/${env.AWS_S3_BUCKET}/`;
+    if (
+      actual.protocol !== 'https:' ||
+      actual.origin !== expectedBase.origin ||
+      !actual.pathname.startsWith(expectedPrefix)
+    ) {
+      throw new ForbiddenError('Object URL is outside configured storage', 'INVALID_FILE_URL');
+    }
+
+    let key: string;
+    try {
+      key = decodeURIComponent(actual.pathname.slice(expectedPrefix.length));
+    } catch {
+      throw new ForbiddenError('Malformed object key', 'INVALID_FILE_URL');
+    }
+
+    const segments = key.split('/');
+    if (
+      segments.length !== 3 ||
+      !allowedFolders.has(segments[0]) ||
+      segments[1] !== userId ||
+      !segments[2] ||
+      segments.some((part) => !part || part === '.' || part === '..')
+    ) {
+      throw new ForbiddenError('Object URL does not belong to the current user', 'INVALID_FILE_URL');
+    }
+
+    return { bucket: env.AWS_S3_BUCKET, key };
   }
 
-  private _extractKeyFromUrl(url: string): string | null {
+  /**
+   * Resolve a previously persisted file URL for deletion. This is still
+   * constrained to the configured origin/bucket and canonical key structure.
+   * Account/document owners are validated by the caller before this method.
+   */
+  resolveConfiguredObjectUrl(fileUrl: string): StorageObjectTarget {
+    let actual: URL;
+    let expectedBase: URL;
     try {
-      const parsed = new URL(url);
-      // pathname looks like  /<bucket>/<key>  or  /<key>  depending on endpoint style
-      const parts = parsed.pathname.replace(/^\//, '').split('/');
-      // If first segment matches bucket name, strip it
-      if (parts[0] === env.AWS_S3_BUCKET) {
-        return parts.slice(1).join('/');
-      }
-      return parts.join('/');
+      actual = new URL(fileUrl);
+      expectedBase = new URL(this.publicFileUrl('placeholder'));
     } catch {
-      return null;
+      throw new ForbiddenError('Invalid cloud object URL', 'INVALID_FILE_URL');
     }
+
+    const prefix = `/${env.AWS_S3_BUCKET}/`;
+    if (actual.protocol !== 'https:' || actual.origin !== expectedBase.origin || !actual.pathname.startsWith(prefix)) {
+      throw new ForbiddenError('Object URL is outside configured storage', 'INVALID_FILE_URL');
+    }
+
+    let key: string;
+    try {
+      key = decodeURIComponent(actual.pathname.slice(prefix.length));
+    } catch {
+      throw new ForbiddenError('Malformed object key', 'INVALID_FILE_URL');
+    }
+
+    const segments = key.split('/');
+    if (
+      segments.length !== 3 ||
+      !allowedFolders.has(segments[0]) ||
+      !segments[1] ||
+      !segments[2] ||
+      segments.some((part) => !part || part === '.' || part === '..')
+    ) {
+      throw new ForbiddenError('Object key is not canonical', 'INVALID_FILE_URL');
+    }
+    return { bucket: env.AWS_S3_BUCKET, key };
+  }
+
+  async deleteObject(bucket: string, key: string): Promise<void> {
+    if (bucket !== env.AWS_S3_BUCKET) {
+      throw new ForbiddenError('Refusing to delete from an unconfigured bucket', 'INVALID_STORAGE_BUCKET');
+    }
+    const segments = key.split('/');
+    if (
+      segments.length !== 3 ||
+      !allowedFolders.has(segments[0]) ||
+      !segments[1] ||
+      !segments[2] ||
+      segments.some((part) => !part || part === '.' || part === '..')
+    ) {
+      throw new ForbiddenError('Refusing to delete a non-canonical object key', 'INVALID_OBJECT_KEY');
+    }
+    // S3 DeleteObject is idempotent for a missing key. Intentionally propagate
+    // errors so the durable worker can retry instead of falsely marking success.
+    await this.client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  }
+
+  async deleteFileByUrl(fileUrl: string): Promise<void> {
+    const target = this.resolveConfiguredObjectUrl(fileUrl);
+    await this.deleteObject(target.bucket, target.key);
   }
 }
