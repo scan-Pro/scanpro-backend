@@ -416,9 +416,12 @@ export class AccountDeletionService {
       ]);
 
       if (unfinishedJobs > 0 || unfinishedGrants > 0) {
-        const requiresOperator = deadLetterJobs > 0 || (await tx.pendingDeletion.count({
-          where: { userId: claim.userId, status: 'FAILED', OR: [{ bucket: null }, { objectKey: null }] },
-        })) > 0;
+        const failedJobs = await tx.pendingDeletion.count({
+          where: { userId: claim.userId, status: 'FAILED' },
+        });
+        // FAILED rows are deliberately not auto-claimed. Surface every one to
+        // an operator, even when a key has been inventoried and is requeueable.
+        const requiresOperator = deadLetterJobs > 0 || failedJobs > 0;
         await tx.accountDeletionJob.updateMany({
           where: { id: claim.id, status: 'PROCESSING', claimToken: claim.claimToken },
           data: {
