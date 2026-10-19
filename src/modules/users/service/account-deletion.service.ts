@@ -207,7 +207,7 @@ export class AccountDeletionService {
           });
           if (result.count !== 1) return false; // stale worker lost the lease
           await tx.uploadGrant.updateMany({
-            where: { bucket: claim.bucket!, objectKey: claim.objectKey! },
+            where: { userId: claim.userId, bucket: claim.bucket!, objectKey: claim.objectKey! },
             data: { cleanupDone: true },
           });
           return true;
