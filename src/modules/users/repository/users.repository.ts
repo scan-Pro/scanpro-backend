@@ -9,7 +9,16 @@ export class UsersRepository {
   }
 
   async updateProfile(id: string, data: { name?: string; passwordHash?: string }): Promise<User> {
-    return prisma.user.update({ where: { id }, data });
+    return prisma.$transaction(async (tx) => {
+      const users = await tx.$queryRaw<Array<{ id: string; lifecycle_status: string }>>`
+        SELECT id, lifecycle_status FROM users WHERE id = ${id} FOR UPDATE
+      `;
+      if (!users.length) throw new NotFoundError('User not found', 'USER_NOT_FOUND');
+      if (users[0].lifecycle_status !== 'ACTIVE') {
+        throw new ForbiddenError('Account deletion is in progress', 'ACCOUNT_DELETING');
+      }
+      return tx.user.update({ where: { id }, data });
+    });
   }
 
   /**
