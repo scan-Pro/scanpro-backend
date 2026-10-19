@@ -162,7 +162,7 @@ export class UploadsService {
     return { bucket: env.AWS_S3_BUCKET, key };
   }
 
-  async deleteObject(bucket: string, key: string, expectedUserId?: string): Promise<void> {
+  async deleteObject(bucket: string, key: string, expectedUserId: string): Promise<void> {
     if (bucket !== env.AWS_S3_BUCKET) {
       throw new ForbiddenError('Refusing to delete from an unconfigured bucket', 'INVALID_STORAGE_BUCKET');
     }
@@ -171,7 +171,7 @@ export class UploadsService {
       segments.length !== 3 ||
       !allowedFolders.has(segments[0]) ||
       !segments[1] ||
-      (expectedUserId !== undefined && segments[1] !== expectedUserId) ||
+      segments[1] !== expectedUserId ||
       !segments[2] ||
       segments.some((part) => !part || part === '.' || part === '..')
     ) {
@@ -182,8 +182,8 @@ export class UploadsService {
     await this.client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
   }
 
-  async deleteFileByUrl(fileUrl: string): Promise<void> {
-    const target = this.resolveConfiguredObjectUrl(fileUrl);
-    await this.deleteObject(target.bucket, target.key);
+  async deleteFileByUrl(fileUrl: string, userId: string): Promise<void> {
+    const target = this.resolveOwnedObjectUrl(fileUrl, userId);
+    await this.deleteObject(target.bucket, target.key, userId);
   }
 }
