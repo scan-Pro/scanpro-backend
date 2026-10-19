@@ -49,4 +49,4 @@ The worker retries transient object deletion failures with backoff. After five f
 
 The new CI workflow runs Prisma generation/validation, the Node test suite, and the TypeScript build on pull requests. This repository change has not been locally built or tested in this editing session, and the migration has not been applied to MySQL here. Treat CI and disposable-MySQL evidence as required before declaring the phase complete or deploying.
 
-The storage-object safety tests cover owner/host/key validation, injected S3 deletion calls, and storage error propagation. They do not replace database-backed concurrency tests for MySQL row locking, `SKIP LOCKED`, lease recovery, or account finalization.
+The storage-object safety tests cover owner/host/key validation, injected S3 deletion calls, and storage error propagation. The CI-only MySQL integration suite covers server tombstone rejection and a mocked-storage account-deletion flow through durable receipt finalization. These tests still do not replace multi-process concurrency, in-flight real upload/B2, device, or multi-device tests.
