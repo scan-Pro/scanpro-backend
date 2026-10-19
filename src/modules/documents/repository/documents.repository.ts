@@ -234,10 +234,12 @@ export class DocumentsRepository {
           where: { userId, bucket: target.bucket, objectKey: target.key },
           select: { expiresAt: true },
         });
-        const grantSafeTime = grants.reduce((latest, grant) => {
-          const expiryWithMargin = new Date(grant.expiresAt.getTime() + 5 * 60 * 1000);
-          return expiryWithMargin > latest ? expiryWithMargin : latest;
-        }, safeDefaultTime);
+        const grantSafeTime = grants.length === 0
+          ? safeDefaultTime
+          : grants.reduce((latest, grant) => {
+              const expiryWithMargin = new Date(grant.expiresAt.getTime() + 5 * 60 * 1000);
+              return expiryWithMargin > latest ? expiryWithMargin : latest;
+            }, now);
         await tx.pendingDeletion.create({
           data: {
             fileUrl: target.fileUrl,
