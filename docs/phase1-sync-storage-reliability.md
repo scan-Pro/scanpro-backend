@@ -9,7 +9,7 @@ This branch adds durable server-side document tombstones, upload-grant tracking,
 - `POST /api/v1/uploads/presigned-url` persists an upload grant before returning its presigned URL.
 - Document creation/update/deletion and folder/user mutations reject accounts whose lifecycle state is `DELETING`.
 - A document delete writes a server-side `(user_id, document_id)` tombstone and exact cleanup intents in the same database transaction as deleting document metadata.
-- `DELETE /api/v1/users/account` returns HTTP 202 and a durable job identifier. It does not imply cloud cleanup is complete.
+- `DELETE /api/v1/users/account` returns HTTP 202 and a durable job identifier while cleanup is pending. A repeat request after completion returns HTTP 200 with the durable completion receipt.
 - The background worker waits until a known presigned grant has expired plus a five-minute margin before attempting deletion. URL-only legacy objects with no grant use a conservative 65-minute safety window.
 - The worker deletes only recorded keys in the configured bucket, validates canonical namespace/owner path, propagates storage errors, and uses leases/claim tokens for acknowledgement.
 - The account row remains until required cleanup is complete. A separate receipt and account-deletion job survive the final cascade.
