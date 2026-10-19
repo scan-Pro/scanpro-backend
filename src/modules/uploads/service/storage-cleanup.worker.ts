@@ -174,7 +174,6 @@ export class StorageCleanupWorker {
         },
         data: {
           status: 'CLEANING',
-          attempts: { increment: 1 },
           leaseToken: token,
           leaseExpiresAt: new Date(claimNow.getTime() + ACCOUNT_LEASE_MS),
           startedAt: candidate.startedAt ?? claimNow,
@@ -278,6 +277,7 @@ export class StorageCleanupWorker {
           where: { id: candidate.id, status: 'CLEANING', leaseToken: token },
           data: {
             status: 'FAILED',
+            attempts: { increment: 1 },
             lastError: message.slice(0, 4000),
             leaseToken: null,
             leaseExpiresAt: null,
