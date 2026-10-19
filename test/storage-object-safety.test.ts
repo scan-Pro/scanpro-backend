@@ -40,10 +40,11 @@ test('resolves only a configured storage URL for the matching owner', () => {
 
 test('rejects non-canonical keys and keys outside supported namespaces', async () => {
   const service = new UploadsService({ send: async () => ({}) } as unknown as S3Client);
-  await assert.rejects(service.deleteObject('other-bucket', 'pages/user-1/file.jpg'));
-  await assert.rejects(service.deleteObject('scaniro-app', '../user-1/file.jpg'));
-  await assert.rejects(service.deleteObject('scaniro-app', 'unknown/user-1/file.jpg'));
-  await assert.rejects(service.deleteObject('scaniro-app', 'pages/user-1/nested/file.jpg'));
+  await assert.rejects(service.deleteObject('other-bucket', 'pages/user-1/file.jpg', 'user-1'));
+  await assert.rejects(service.deleteObject('scaniro-app', '../user-1/file.jpg', 'user-1'));
+  await assert.rejects(service.deleteObject('scaniro-app', 'unknown/user-1/file.jpg', 'user-1'));
+  await assert.rejects(service.deleteObject('scaniro-app', 'pages/user-1/nested/file.jpg', 'user-1'));
+  await assert.rejects(service.deleteObject('scaniro-app', 'pages/user-2/file.jpg', 'user-1'));
 });
 
 test('deletes only the exact configured bucket and object key', async () => {
@@ -55,7 +56,7 @@ test('deletes only the exact configured bucket and object key', async () => {
     },
   } as unknown as S3Client);
 
-  await service.deleteObject('scaniro-app', 'pages/user-1/abc123.jpg');
+  await service.deleteObject('scaniro-app', 'pages/user-1/abc123.jpg', 'user-1');
   assert.equal(sent.length, 1);
   const command = sent[0] as { input: { Bucket?: string; Key?: string } };
   assert.equal(command.input.Bucket, 'scaniro-app');
@@ -70,7 +71,7 @@ test('propagates object-storage deletion failures for retry processing', async (
   } as unknown as S3Client);
 
   await assert.rejects(
-    service.deleteObject('scaniro-app', 'pages/user-1/abc123.jpg'),
+    service.deleteObject('scaniro-app', 'pages/user-1/abc123.jpg', 'user-1'),
     /simulated object storage failure/,
   );
 });
