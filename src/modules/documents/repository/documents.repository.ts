@@ -181,9 +181,11 @@ export class DocumentsRepository {
     });
   }
 
-  async deleteDocument(id: string, userId: string, targets: {
-    fileUrl: string | null; bucket: string | null; objectKey: string | null; objectIdentity: string | null;
-  }[] = []): Promise<void> {
+  async deleteDocument(
+    id: string,
+    userId: string,
+    resolveTarget: ((url: string) => { fileUrl: string | null; bucket: string | null; objectKey: string | null; objectIdentity: string | null })
+  ): Promise<void> {
     await prisma.$transaction(async (tx) => {
       await lockActiveUser(tx, userId);
       await tx.documentTombstone.upsert({
@@ -202,6 +204,12 @@ export class DocumentsRepository {
         if (tombstone) return; // Idempotent retry after an earlier successful delete.
         throw new NotFoundError('Document not found', 'DOCUMENT_NOT_FOUND');
       }
+      const fileUrls = [
+        existing.thumbnailUrl,
+        existing.pdfUrl,
+        ...existing.pages.flatMap((page) => [page.imageUrl, page.thumbnailUrl]),
+      ].filter((url): url is string => Boolean(url && /^https?:\\/\\//i.test(url)));
+      const targets = fileUrls.map((url) => resolveTarget(url));
       const validTargets = targets.filter((target) => target.objectKey && target.bucket && target.objectIdentity);
       const unresolvedTargets = targets.filter((target) => !target.objectKey || !target.bucket || !target.objectIdentity);
       if (validTargets.length) {
