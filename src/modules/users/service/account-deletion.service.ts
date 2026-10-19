@@ -450,6 +450,25 @@ export class AccountDeletionService {
     });
   }
 
+  /** Controlled operator recovery for an account job that reached FAILED/DEAD_LETTER. */
+  async requeueAccountDeletionJob(jobId: string): Promise<void> {
+    const job = await prisma.accountDeletionJob.findUnique({ where: { id: jobId } });
+    if (!job) throw new NotFoundError('Account deletion job not found', 'ACCOUNT_DELETION_JOB_NOT_FOUND');
+    if (job.status !== 'FAILED' && job.status !== 'DEAD_LETTER') {
+      throw new ConflictError('Only failed or dead-letter account jobs can be requeued', 'ACCOUNT_DELETION_JOB_NOT_REQUEUEABLE');
+    }
+    await prisma.accountDeletionJob.updateMany({
+      where: { id: jobId, status: job.status, userId: job.userId },
+      data: {
+        status: 'PENDING',
+        attempts: 0,
+        claimToken: null,
+        leaseExpiresAt: null,
+        lastError: null,
+      },
+    });
+  }
+
   /** Controlled operator recovery: only failed/dead-letter exact-key jobs are requeued. */
   async requeueCleanupJob(jobId: string): Promise<void> {
     await prisma.$transaction(async (tx) => {
