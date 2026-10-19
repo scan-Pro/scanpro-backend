@@ -40,7 +40,7 @@ export class UsersController {
     try {
       const userId = req.user!.userId;
       await this.usersService.deleteAccount(userId);
-      ApiResponse.success(res, 'Account deleted successfully');
+      ApiResponse.success(res, 'Account deletion scheduled; cloud cleanup will finish asynchronously.');
     } catch (error) {
       next(error);
     }
