@@ -15,14 +15,19 @@ const documentIncludeFull = {
 
 type Transaction = Prisma.TransactionClient;
 
+export interface ResolvedStorageTarget {
+  fileUrl: string | null;
+  bucket: string | null;
+  objectKey: string | null;
+  objectIdentity: string | null;
+}
+
 async function lockActiveUser(tx: Transaction, userId: string): Promise<void> {
-  // The lock serializes document writes against account deletion.
+  // This owner-row lock serializes document writes with account-deletion start.
   const users = await tx.$queryRaw<Array<{ id: string; lifecycle_status: string }>>`
     SELECT id, lifecycle_status FROM users WHERE id = ${userId} FOR UPDATE
   `;
-  if (users.length === 0) {
-    throw new NotFoundError('User not found', 'USER_NOT_FOUND');
-  }
+  if (users.length === 0) throw new NotFoundError('User not found', 'USER_NOT_FOUND');
   if (users[0].lifecycle_status !== 'ACTIVE') {
     throw new ForbiddenError('Account deletion is in progress', 'ACCOUNT_DELETING');
   }
@@ -90,9 +95,7 @@ export class DocumentsRepository {
           isFavorite: data.isFavorite ?? false,
           ...(data.createdAt ? { createdAt: new Date(data.createdAt) } : {}),
           ...(data.updatedAt ? { updatedAt: new Date(data.updatedAt) } : {}),
-          pages: data.pages && data.pages.length > 0
-            ? { create: pageCreateData(data.pages) }
-            : undefined,
+          pages: data.pages && data.pages.length > 0 ? { create: pageCreateData(data.pages) } : undefined,
         },
         include: documentIncludeFull,
       });
@@ -132,11 +135,7 @@ export class DocumentsRepository {
     });
   }
 
-  async updateDocument(
-    id: string,
-    userId: string,
-    data: UpdateDocumentDto
-  ): Promise<DocumentWithRelations> {
+  async updateDocument(id: string, userId: string, data: UpdateDocumentDto): Promise<DocumentWithRelations> {
     return prisma.$transaction(async (tx) => {
       await lockActiveUser(tx, userId);
       await assertNotTombstoned(tx, userId, id);
@@ -174,25 +173,18 @@ export class DocumentsRepository {
           });
         }
       }
-      return tx.document.findFirstOrThrow({
-        where: { id, userId },
-        include: documentIncludeFull,
-      });
+      return tx.document.findFirstOrThrow({ where: { id, userId }, include: documentIncludeFull });
     });
   }
 
   async deleteDocument(
     id: string,
     userId: string,
-    resolveTarget: ((url: string) => { fileUrl: string | null; bucket: string | null; objectKey: string | null; objectIdentity: string | null })
+    resolveTarget: (url: string) => ResolvedStorageTarget
   ): Promise<void> {
     await prisma.$transaction(async (tx) => {
       await lockActiveUser(tx, userId);
-      await tx.documentTombstone.upsert({
-        where: { userId_documentId: { userId, documentId: id } },
-        create: { userId, documentId: id },
-        update: { deletedAt: new Date() },
-      });
+
       const existing = await tx.document.findFirst({
         where: { id, userId },
         include: { pages: true },
@@ -201,20 +193,58 @@ export class DocumentsRepository {
         const tombstone = await tx.documentTombstone.findUnique({
           where: { userId_documentId: { userId, documentId: id } },
         });
-        if (tombstone) return; // Idempotent retry after an earlier successful delete.
+        if (tombstone) return; // Idempotent retry after a previous delete.
         throw new NotFoundError('Document not found', 'DOCUMENT_NOT_FOUND');
       }
+
+      const now = new Date();
+      const legacySafeAfter = new Date(now.getTime() + 65 * 60 * 1000);
+      await tx.documentTombstone.upsert({
+        where: { userId_documentId: { userId, documentId: id } },
+        create: { userId, documentId: id, deletedAt: now },
+        update: { deletedAt: now },
+      });
+
       const fileUrls = [
         existing.thumbnailUrl,
         existing.pdfUrl,
         ...existing.pages.flatMap((page) => [page.imageUrl, page.thumbnailUrl]),
-      ].filter((url): url is string => Boolean(url && /^https?:\\/\\//i.test(url)));
-      const targets = fileUrls.map((url) => resolveTarget(url));
-      const validTargets = targets.filter((target) => target.objectKey && target.bucket && target.objectIdentity);
-      const unresolvedTargets = targets.filter((target) => !target.objectKey || !target.bucket || !target.objectIdentity);
-      if (validTargets.length) {
+      ].filter((url): url is string => Boolean(url && /^https?:\/\//i.test(url)));
+
+      const targetByIdentity = new Map<string, {
+        target: ResolvedStorageTarget;
+        notBefore: Date;
+      }>();
+      const unresolvedTargets: ResolvedStorageTarget[] = [];
+
+      for (const url of new Set(fileUrls)) {
+        const target = resolveTarget(url);
+        if (!target.bucket || !target.objectKey || !target.objectIdentity) {
+          unresolvedTargets.push(target);
+          continue;
+        }
+        const grant = await tx.uploadGrant.findFirst({
+          where: {
+            userId,
+            bucket: target.bucket,
+            objectKey: target.objectKey,
+            objectIdentity: target.objectIdentity,
+          },
+          select: { expiresAt: true, cleanupDone: true },
+        });
+        const grantSafeAfter = grant
+          ? new Date(grant.expiresAt.getTime() + 5 * 60 * 1000)
+          : legacySafeAfter;
+        const current = targetByIdentity.get(target.objectIdentity);
+        targetByIdentity.set(target.objectIdentity, {
+          target,
+          notBefore: current && current.notBefore > grantSafeAfter ? current.notBefore : grantSafeAfter,
+        });
+      }
+
+      if (targetByIdentity.size > 0) {
         await tx.pendingDeletion.createMany({
-          data: validTargets.map((target) => ({
+          data: [...targetByIdentity.values()].map(({ target, notBefore }) => ({
             fileUrl: target.fileUrl,
             bucket: target.bucket!,
             objectKey: target.objectKey!,
@@ -222,27 +252,38 @@ export class DocumentsRepository {
             documentId: id,
             userId,
             status: 'PENDING',
+            notBefore,
           })),
           skipDuplicates: true,
         });
+        await tx.uploadGrant.updateMany({
+          where: {
+            userId,
+            objectIdentity: { in: [...targetByIdentity.keys()] },
+            cleanupDone: false,
+          },
+          data: { cleanupState: 'PENDING' },
+        });
       }
-      if (unresolvedTargets.length) {
+
+      if (unresolvedTargets.length > 0) {
         await tx.pendingDeletion.createMany({
           data: unresolvedTargets.map((target) => ({
             fileUrl: target.fileUrl,
             bucket: null,
             objectKey: null,
-            objectIdentity: target.objectIdentity,
+            objectIdentity: null,
             documentId: id,
             userId,
             status: 'DEAD_LETTER',
-            lastError: 'Legacy cleanup target cannot be resolved safely; operator inventory required.',
+            lastError: 'Storage URL could not be validated against the configured endpoint/bucket and owner key. Operator inventory required.',
           })),
           skipDuplicates: true,
         });
       }
+
       await tx.document.deleteMany({ where: { id, userId } });
-    });
+    }, { timeout: 15000 });
   }
 
   async toggleFavorite(id: string, userId: string, isFavorite: boolean): Promise<DocumentWithRelations> {
