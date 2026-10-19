@@ -38,12 +38,12 @@ test('resolves only a configured storage URL for the matching owner', () => {
   );
 });
 
-test('rejects non-canonical keys and keys outside supported namespaces', () => {
+test('rejects non-canonical keys and keys outside supported namespaces', async () => {
   const service = new UploadsService({ send: async () => ({}) } as unknown as S3Client);
-  assert.throws(() => service.deleteObject('other-bucket', 'pages/user-1/file.jpg'));
-  assert.throws(() => service.deleteObject('scaniro-app', '../user-1/file.jpg'));
-  assert.throws(() => service.deleteObject('scaniro-app', 'unknown/user-1/file.jpg'));
-  assert.throws(() => service.deleteObject('scaniro-app', 'pages/user-1/nested/file.jpg'));
+  await assert.rejects(service.deleteObject('other-bucket', 'pages/user-1/file.jpg'));
+  await assert.rejects(service.deleteObject('scaniro-app', '../user-1/file.jpg'));
+  await assert.rejects(service.deleteObject('scaniro-app', 'unknown/user-1/file.jpg'));
+  await assert.rejects(service.deleteObject('scaniro-app', 'pages/user-1/nested/file.jpg'));
 });
 
 test('deletes only the exact configured bucket and object key', async () => {
