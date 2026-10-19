@@ -63,7 +63,10 @@ export class UsersService {
     await this.authRepository.deleteAllUserRefreshTokens(userId);
   }
 
-  async deleteAccount(userId: string): Promise<{ status: 'DELETING'; jobId: string }> {
+  async deleteAccount(userId: string): Promise<
+    | { status: 'DELETING'; jobId: string }
+    | { status: 'COMPLETED'; jobId?: string; completedAt: Date }
+  > {
     return this.accountDeletionService.requestDeletion(userId);
   }
 }
