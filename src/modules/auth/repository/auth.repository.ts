@@ -4,9 +4,9 @@ import { ForbiddenError, NotFoundError, UnauthorizedError } from '../../../commo
 import type { Prisma } from '@prisma/client';
 
 async function lockActiveUser(tx: Prisma.TransactionClient, userId: string): Promise<void> {
-  const users = await tx.$queryRaw<Array<{ id: string; lifecycle_status: string }>>\`
-    SELECT id, lifecycle_status FROM users WHERE id = \${userId} FOR UPDATE
-  \`;
+  const users = await tx.$queryRaw<Array<{ id: string; lifecycle_status: string }>>`
+    SELECT id, lifecycle_status FROM users WHERE id = ${userId} FOR UPDATE
+  `;
   if (!users.length) throw new NotFoundError('User not found', 'USER_NOT_FOUND');
   if (users[0].lifecycle_status !== 'ACTIVE') {
     throw new ForbiddenError('Account deletion is in progress', 'ACCOUNT_DELETING');
