@@ -9,6 +9,16 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/scaniro_ci
+      JWT_ACCESS_SECRET: ci-access-secret-which-is-at-least-32-chars
+      JWT_REFRESH_SECRET: ci-refresh-secret-which-is-at-least-32-chars
+      AWS_ACCESS_KEY_ID: ci-storage-access-key
+      AWS_SECRET_ACCESS_KEY: ci-storage-secret-key
+      AWS_REGION: us-east-005
+      AWS_S3_BUCKET: scaniro-app
+      AWS_ENDPOINT: https://s3.us-east-005.backblazeb2.com
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -19,7 +29,5 @@ jobs:
       - run: npx prisma generate
       - name: Validate Prisma schema
         run: npx prisma validate
-        env:
-          DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/scaniro_ci
       - run: npm test
       - run: npm run build
