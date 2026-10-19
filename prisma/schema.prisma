@@ -21,16 +21,45 @@ enum FilterType {
   BLACK_AND_WHITE
 }
 
+enum UserLifecycleStatus {
+  ACTIVE
+  DELETING
+}
+
+enum DeletionStatus {
+  PENDING
+  RETRYING
+  COMPLETED
+  FAILED
+  DEAD_LETTER
+}
+
+enum UploadGrantCleanupStatus {
+  ACTIVE
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum AccountDeletionStatus {
+  PENDING
+  CLEANING
+  FAILED
+  COMPLETED
+}
+
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  passwordHash  String         @map("password_hash")
-  name          String
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
-  documents     Document[]
-  folders       Folder[]
-  refreshTokens RefreshToken[]
+  id                String              @id @default(uuid())
+  email             String              @unique
+  passwordHash      String              @map("password_hash")
+  name              String
+  lifecycleStatus   UserLifecycleStatus @default(ACTIVE) @map("lifecycle_status")
+  deletionStartedAt DateTime?           @map("deletion_started_at")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+  documents         Document[]
+  folders           Folder[]
+  refreshTokens     RefreshToken[]
 
   @@map("users")
 }
@@ -94,23 +123,73 @@ model DocumentPage {
   @@map("document_pages")
 }
 
-model PendingDeletion {
-  id          String    @id @default(uuid())
-  fileUrl     String    @map("file_url") @db.VarChar(500)
-  documentId  String?   @map("document_id")
-  userId      String    @map("user_id")
-  attempts    Int       @default(0)
-  lastError   String?   @map("last_error") @db.Text
-  status      DeletionStatus @default(PENDING) @map("status")
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt @map("updated_at")
+// Deliberately has no FK to users/documents so the fence survives metadata deletion.
+model DocumentTombstone {
+  userId     String   @map("user_id") @db.VarChar(191)
+  documentId String   @map("document_id") @db.VarChar(191)
+  deletedAt  DateTime @default(now()) @map("deleted_at")
 
-  @@index([status, createdAt])
-  @@map("pending_deletions")
+  @@id([userId, documentId])
+  @@index([deletedAt])
+  @@map("document_tombstones")
 }
 
-enum DeletionStatus {
-  PENDING
-  COMPLETED
-  FAILED
+// Durable inventory of URLs issued by the API. No user FK: rows must survive account deletion.
+model UploadGrant {
+  id             String                  @id @default(uuid())
+  userId         String                  @map("user_id") @db.VarChar(191)
+  bucket         String                  @db.VarChar(100)
+  objectKey      String                  @map("object_key") @db.VarChar(500)
+  objectIdentity String                  @unique @map("object_identity") @db.Char(64)
+  fileUrl        String                  @map("file_url") @db.VarChar(500)
+  expiresAt      DateTime                @map("expires_at")
+  cleanupDone    Boolean                 @default(false) @map("cleanup_done")
+  cleanupState   UploadGrantCleanupStatus @default(ACTIVE) @map("cleanup_state")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+
+  @@index([userId, cleanupDone])
+  @@index([expiresAt, cleanupDone])
+  @@map("upload_grants")
+}
+
+// Jobs have no FK to users so a completed deletion receipt remains queryable.
+model AccountDeletionJob {
+  id             String                @id @default(uuid())
+  userId         String                @unique @map("user_id") @db.VarChar(191)
+  status         AccountDeletionStatus @default(PENDING)
+  attempts       Int                   @default(0)
+  lastError      String?               @map("last_error") @db.Text
+  leaseToken     String?               @map("lease_token") @db.Char(36)
+  leaseExpiresAt DateTime?             @map("lease_expires_at")
+  startedAt      DateTime?             @map("started_at")
+  completedAt    DateTime?             @map("completed_at")
+  createdAt      DateTime              @default(now()) @map("created_at")
+  updatedAt      DateTime              @updatedAt @map("updated_at")
+
+  @@index([status, leaseExpiresAt, createdAt])
+  @@map("account_deletion_jobs")
+}
+
+model PendingDeletion {
+  id             String         @id @default(uuid())
+  fileUrl        String?        @map("file_url") @db.VarChar(500)
+  bucket         String?        @db.VarChar(100)
+  objectKey      String?        @map("object_key") @db.VarChar(500)
+  objectIdentity String?        @unique @map("object_identity") @db.Char(64)
+  documentId     String?        @map("document_id")
+  userId         String         @map("user_id") @db.VarChar(191)
+  attempts       Int            @default(0)
+  lastError      String?        @map("last_error") @db.Text
+  status         DeletionStatus @default(PENDING)
+  notBefore      DateTime?      @map("not_before")
+  leaseToken     String?        @map("lease_token") @db.Char(36)
+  leaseExpiresAt DateTime?      @map("lease_expires_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([status, leaseExpiresAt, createdAt])
+  @@index([userId, status])
+  @@map("pending_deletions")
 }
