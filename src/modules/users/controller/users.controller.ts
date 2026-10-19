@@ -36,7 +36,11 @@ export class UsersController {
   deleteAccount = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
       const result = await this.usersService.deleteAccount(req.user!.userId);
-      // 202 reflects that cleanup is durable but runs asynchronously.
+      if (result.status === 'COMPLETED') {
+        ApiResponse.success(res, 'Account deletion was already completed', result, 200);
+        return;
+      }
+      // 202 reflects that cleanup is durably queued but still asynchronous.
       ApiResponse.success(res, 'Account deletion accepted; cleanup is continuing', result, 202);
     } catch (error) {
       next(error);
