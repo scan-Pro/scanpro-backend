@@ -1,0 +1,45 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [main, production]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Test, Typecheck, and Prisma Validate
+    runs-on: ubuntu-latest
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://scaniro:scaniro@127.0.0.1:3306/scaniro_ci
+      JWT_ACCESS_SECRET: test-access-secret-that-is-at-least-32-chars
+      JWT_REFRESH_SECRET: test-refresh-secret-that-is-at-least-32-chars
+      JWT_ISSUER: scaniro-api
+      JWT_AUDIENCE: scaniro-client
+      AWS_ACCESS_KEY_ID: test-access-key
+      AWS_SECRET_ACCESS_KEY: test-secret-key
+      AWS_REGION: us-east-005
+      AWS_S3_BUCKET: scaniro-app
+      AWS_ENDPOINT: https://s3.us-east-005.backblazeb2.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Generate Prisma Client
+        run: npx prisma generate
+      - name: Run tests
+        run: npm test
+      - name: Typecheck and build
+        run: npm run build
+      - name: Validate Prisma schema
+        run: npx prisma validate
