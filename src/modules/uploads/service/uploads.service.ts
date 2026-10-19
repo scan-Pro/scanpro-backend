@@ -132,24 +132,4 @@ export class UploadsService {
     await s3Client.send(new DeleteObjectCommand({ Bucket: bucket, Key: objectKey }));
   }
 
-  async deleteFileByUrl(fileUrl: string): Promise<void> {
-    const targets = this.resolveOwnedStorageUrl(fileUrl, this._ownerIdFromUrl(fileUrl));
-    if (!targets.bucket || !targets.objectKey) {
-      throw new Error('Storage URL cannot be safely resolved; operator inventory required');
-    }
-    await this.deleteFileByKey(targets.bucket, targets.objectKey);
-  }
-
-  private _ownerIdFromUrl(fileUrl: string): string {
-    try {
-      const segments = new URL(fileUrl).pathname.split('/').filter(Boolean).map(decodeURIComponent);
-      const bucketIndex = segments[0] === env.AWS_S3_BUCKET ? 1 : 0;
-      // URL layout is <folder...>/<userId>/<uuid>.<ext>, with arbitrary folder
-      // nesting. The grant ledger should be preferred; this fallback exists
-      // only for legacy callers and is intentionally conservative.
-      return segments[bucketIndex + 1] ?? '';
-    } catch {
-      return '';
-    }
-  }
 }
