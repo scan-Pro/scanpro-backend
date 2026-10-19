@@ -11,8 +11,23 @@ permissions:
 
 jobs:
   validate:
-    name: Test, Typecheck, and Prisma Validate
+    name: Test, Typecheck, Prisma Validate, and Fresh Migration
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root-ci-password
+          MYSQL_DATABASE: scaniro_ci
+          MYSQL_USER: scaniro
+          MYSQL_PASSWORD: scaniro
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot-ci-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
     env:
       NODE_ENV: test
       DATABASE_URL: mysql://scaniro:scaniro@127.0.0.1:3306/scaniro_ci
@@ -37,9 +52,11 @@ jobs:
         run: npm ci
       - name: Generate Prisma Client
         run: npx prisma generate
+      - name: Validate Prisma schema
+        run: npx prisma validate
+      - name: Apply all migrations to disposable MySQL
+        run: npx prisma migrate deploy
       - name: Run tests
         run: npm test
       - name: Typecheck and build
         run: npm run build
-      - name: Validate Prisma schema
-        run: npx prisma validate
