@@ -1,0 +1,51 @@
+name: Phase 1 Backend Verification
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: scaniro_ci
+          MYSQL_USER: ci
+          MYSQL_PASSWORD: ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      NODE_ENV: test
+      RUN_MYSQL_INTEGRATION: '1'
+      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/scaniro_ci
+      JWT_ACCESS_SECRET: ci-access-secret-which-is-at-least-32-chars
+      JWT_REFRESH_SECRET: ci-refresh-secret-which-is-at-least-32-chars
+      AWS_ACCESS_KEY_ID: ci-storage-access-key
+      AWS_SECRET_ACCESS_KEY: ci-storage-secret-key
+      AWS_REGION: us-east-005
+      AWS_S3_BUCKET: scaniro-app
+      AWS_ENDPOINT: https://s3.us-east-005.backblazeb2.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - name: Validate Prisma schema
+        run: npx prisma validate
+      - name: Apply migrations to disposable MySQL
+        run: npx prisma migrate deploy
+      - run: npm test
+      - run: npm run build

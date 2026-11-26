@@ -1,149 +1,86 @@
-import { randomUUID } from 'node:crypto';
-import { Prisma } from '@prisma/client';
 import { prisma } from '../../../config/database.js';
 
 export interface PendingDeletionRecord {
   id: string;
   fileUrl: string;
-  bucket: string;
-  objectKey: string;
   documentId: string | null;
   userId: string;
   attempts: number;
   lastError: string | null;
-  leaseToken: string | null;
-  leaseUntil: Date | null;
-  status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'DEAD_LETTER';
+  status: 'PENDING' | 'COMPLETED' | 'FAILED';
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface PendingDeletionInput {
-  fileUrl: string;
-  bucket: string;
-  objectKey: string;
-  documentId: string | null;
-  userId: string;
-}
-
 export class PendingDeletionRepository {
-  async createMany(entries: PendingDeletionInput[]): Promise<void> {
+  async createMany(entries: { fileUrl: string; documentId: string | null; userId: string }[]): Promise<void> {
     if (entries.length === 0) return;
     await prisma.pendingDeletion.createMany({
-      data: entries.map((entry) => ({ ...entry, status: 'PENDING' })),
+      data: entries.map((e) => ({
+        fileUrl: e.fileUrl,
+        documentId: e.documentId,
+        userId: e.userId,
+        status: 'PENDING',
+      })),
       skipDuplicates: true,
     });
   }
 
-  async createManyInTransaction(
-    tx: Prisma.TransactionClient,
-    entries: PendingDeletionInput[],
-  ): Promise<void> {
-    if (entries.length === 0) return;
-    for (const entry of entries) {
-      const existing = await tx.pendingDeletion.findFirst({
-        where: { bucket: entry.bucket, objectKey: entry.objectKey },
-      });
-      if (!existing) {
-        await tx.pendingDeletion.create({
-          data: { ...entry, status: 'PENDING' },
-        });
-      }
-    }
-  }
-
-  async claimBatch(
-    limit = 50,
-    leaseMs = 60_000,
-    userId?: string,
-  ): Promise<PendingDeletionRecord[]> {
-    return prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const candidates = await tx.pendingDeletion.findMany({
-        where: {
-          ...(userId ? { userId } : {}),
-          status: { in: ['PENDING', 'FAILED'] },
-          attempts: { lt: 10 },
-          OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }],
-        },
-        orderBy: { createdAt: 'asc' },
-        take: limit,
-      });
-      const claimed: PendingDeletionRecord[] = [];
-      for (const record of candidates) {
-        const token = randomUUID();
-        const result = await tx.pendingDeletion.updateMany({
-          where: {
-            id: record.id,
-            ...(userId ? { userId } : {}),
-            status: { in: ['PENDING', 'FAILED'] },
-            OR: [{ leaseUntil: null }, { leaseUntil: { lt: now } }],
-          },
-          data: { status: 'PENDING', leaseToken: token, leaseUntil: new Date(now.getTime() + leaseMs) },
-        });
-        if (result.count === 1) {
-          claimed.push({ ...record, leaseToken: token, leaseUntil: new Date(now.getTime() + leaseMs) } as PendingDeletionRecord);
-        }
-      }
-      return claimed;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-  }
-
-  async markCompleted(id: string, leaseToken: string): Promise<boolean> {
-    const result = await prisma.pendingDeletion.updateMany({
-      where: { id, status: 'PENDING', leaseToken },
-      data: { status: 'COMPLETED', leaseToken: null, leaseUntil: null, lastError: null },
+  async markCompleted(id: string): Promise<void> {
+    await prisma.pendingDeletion.update({
+      where: { id },
+      data: { status: 'COMPLETED' },
     });
-    return result.count === 1;
   }
 
-  async markFailed(id: string, leaseToken: string, error: string): Promise<'FAILED' | 'DEAD_LETTER' | null> {
-    const current = await prisma.pendingDeletion.findFirst({
-      where: { id, status: 'PENDING', leaseToken },
-      select: { attempts: true },
-    });
-    if (!current) return null;
-    const nextStatus = current.attempts + 1 >= 10 ? 'DEAD_LETTER' : 'FAILED';
-    const result = await prisma.pendingDeletion.updateMany({
-      where: { id, status: 'PENDING', leaseToken },
+  async markFailed(id: string, error: string): Promise<void> {
+    await prisma.pendingDeletion.update({
+      where: { id },
       data: {
-        status: nextStatus,
+        status: 'FAILED',
         attempts: { increment: 1 },
         lastError: error.slice(0, 1000),
-        leaseToken: null,
-        leaseUntil: null,
       },
     });
-    return result.count === 1 ? nextStatus : null;
   }
 
-  async requeue(id: string): Promise<boolean> {
-    const result = await prisma.pendingDeletion.updateMany({
-      where: { id, status: 'DEAD_LETTER' },
-      data: { status: 'PENDING', attempts: 0, lastError: null, leaseToken: null, leaseUntil: null },
+  async markRetrying(id: string): Promise<void> {
+    await prisma.pendingDeletion.update({
+      where: { id },
+      data: {
+        status: 'PENDING',
+        attempts: { increment: 1 },
+      },
     });
-    return result.count === 1;
   }
 
-  async findUnfinishedForUser(userId: string) {
+  async findPending(limit: number = 50): Promise<PendingDeletionRecord[]> {
     return prisma.pendingDeletion.findMany({
-      where: { userId, status: { not: 'COMPLETED' } },
-      select: { id: true, bucket: true, objectKey: true, status: true },
-    });
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+      take: limit,
+    }) as Promise<PendingDeletionRecord[]>;
   }
 
-  async markGrantCleanupDone(bucket: string, objectKey: string): Promise<void> {
-    await prisma.uploadGrant.updateMany({
-      where: { bucket, objectKey, cleanupDone: false },
-      data: { cleanupDone: true },
-    });
+  async findFailed(limit: number = 50, maxAttempts: number = 5): Promise<PendingDeletionRecord[]> {
+    return prisma.pendingDeletion.findMany({
+      where: {
+        status: 'FAILED',
+        attempts: { lt: maxAttempts },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: limit,
+    }) as Promise<PendingDeletionRecord[]>;
   }
 
-  async deleteOldCompleted(olderThanDays = 7): Promise<number> {
+  async deleteOldCompleted(olderThanDays: number = 7): Promise<number> {
     const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
-    const result = await prisma.pendingDeletion.deleteMany({
-      where: { status: 'COMPLETED', updatedAt: { lt: cutoff } },
+    const { count } = await prisma.pendingDeletion.deleteMany({
+      where: {
+        status: 'COMPLETED',
+        updatedAt: { lt: cutoff },
+      },
     });
-    return result.count;
+    return count;
   }
 }

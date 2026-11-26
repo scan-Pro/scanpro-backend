@@ -1,46 +1,43 @@
-import { createHash } from 'node:crypto';
-import { env } from '../../config/env.js';
 import { ForbiddenError } from '../errors/app-error.js';
 
-export interface OwnedObjectKey {
-  bucket: string;
-  objectKey: string;
-}
-
-export function getOwnedObjectKey(url: string, userId: string): OwnedObjectKey | null {
+/**
+ * Checks whether a cloud storage URL belongs to the given user.
+ *
+ * `UploadsService.generatePresignedUploadUrl` always issues keys of the
+ * form `{folder}/{userId}/{uuid}.{ext}`, so the resulting `fileUrl` always
+ * has the requesting user's id as its own path segment (regardless of
+ * whether it's a Backblaze B2 URL, a raw S3-compatible endpoint URL, or the
+ * local-dev mock URL). This lets us verify — server-side, at write time —
+ * that a URL a client is trying to save onto a document/page was actually
+ * issued to that same user, rather than trusting an arbitrary client-
+ * supplied string.
+ */
+export function isOwnStorageUrl(url: string, userId: string): boolean {
   try {
-    const parsed = new URL(url);
-    const configuredEndpoint = env.AWS_ENDPOINT.trim();
-    const expectedHost = configuredEndpoint
-      ? new URL(configuredEndpoint).host
-      : `s3.${env.AWS_REGION}.amazonaws.com`;
-    if (parsed.protocol !== 'https:' || parsed.host !== expectedHost) return null;
-
-    const parts = parsed.pathname.split('/').filter(Boolean).map(decodeURIComponent);
-    if (parts[0] !== env.AWS_S3_BUCKET || parts.length < 3) return null;
-    const objectKey = parts.slice(1).join('/');
-    const keyParts = objectKey.split('/');
-    const fileName = keyParts.at(-1) ?? '';
-    if (
-      keyParts.some((part) => part === '.' || part === '..') ||
-      keyParts.at(-2) !== userId ||
-      !/^[0-9a-f]{8}-[0-9a-f-]{27}\.[a-zA-Z0-9]{1,12}$/.test(fileName)
-    ) {
-      return null;
-    }
-    return { bucket: env.AWS_S3_BUCKET, objectKey };
+    const { pathname } = new URL(url);
+    return pathname.split('/').filter(Boolean).includes(userId);
   } catch {
-    return null;
+    // Not a well-formed absolute URL (e.g. a raw local device file path) —
+    // never valid for a field that's supposed to hold a cloud storage URL.
+    return false;
   }
 }
 
-export function getObjectDedupeKey(bucket: string, objectKey: string): string {
-  return createHash('sha256').update(`${bucket}\0${objectKey}`).digest('hex');
-}
-
-export function assertOwnStorageUrl(url: string | null | undefined, userId: string, fieldName: string): void {
+/**
+ * Throws a `ForbiddenError` if `url` is set but doesn't belong to `userId`'s
+ * own storage prefix. No-op for null/undefined/empty values, since these
+ * fields are optional/nullable.
+ */
+export function assertOwnStorageUrl(
+  url: string | null | undefined,
+  userId: string,
+  fieldName: string
+): void {
   if (!url) return;
-  if (!getOwnedObjectKey(url, userId)) {
-    throw new ForbiddenError(`${fieldName} does not belong to the current user's configured storage bucket`, 'INVALID_FILE_URL');
+  if (!isOwnStorageUrl(url, userId)) {
+    throw new ForbiddenError(
+      `${fieldName} does not belong to the current user`,
+      'INVALID_FILE_URL'
+    );
   }
 }

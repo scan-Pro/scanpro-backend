@@ -33,6 +33,7 @@ interface AuthUser {
   email: string;
   passwordHash: string;
   createdAt: Date;
+  lifecycleStatus?: 'ACTIVE' | 'DELETING';
 }
 
 interface StoredRefreshSession {
@@ -110,6 +111,10 @@ export class AuthService {
       throw new UnauthorizedError('Invalid email or password', 'INVALID_CREDENTIALS');
     }
 
+    if (user.lifecycleStatus && user.lifecycleStatus !== 'ACTIVE') {
+      throw new UnauthorizedError('Invalid email or password', 'INVALID_CREDENTIALS');
+    }
+
     const isValidPassword = await bcrypt.compare(dto.password, user.passwordHash);
     if (!isValidPassword) {
       throw new UnauthorizedError('Invalid email or password', 'INVALID_CREDENTIALS');
@@ -180,6 +185,10 @@ export class AuthService {
       claims.email !== tokenRecord.user.email
     ) {
       throw new UnauthorizedError('Invalid refresh token', 'REFRESH_TOKEN_INVALID');
+    }
+
+    if (tokenRecord.user.lifecycleStatus && tokenRecord.user.lifecycleStatus !== 'ACTIVE') {
+      throw new UnauthorizedError('Account is being deleted', 'ACCOUNT_DELETING');
     }
 
     if (new Date() >= tokenRecord.expiresAt) {

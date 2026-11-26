@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { DocumentsController } from '../controller/documents.controller.js';
-import { authenticate } from '../../../middlewares/auth.middleware.js';
+import { authenticate, requireActiveAccount } from '../../../middlewares/auth.middleware.js';
 import { validate } from '../../../middlewares/validation.middleware.js';
 import {
   createDocumentSchema,
@@ -16,12 +16,12 @@ const documentsController = new DocumentsController();
 
 router.use(authenticate);
 
-router.post('/', validate(createDocumentSchema), documentsController.createDocument);
+router.post('/', requireActiveAccount, validate(createDocumentSchema), documentsController.createDocument);
 router.get('/', validate(searchDocumentsSchema), documentsController.getDocuments);
 router.get('/:id', validate(documentIdParamSchema), documentsController.getDocumentById);
-router.patch('/:id', validate(updateDocumentSchema), documentsController.updateDocument);
-router.delete('/:id', validate(documentIdParamSchema), documentsController.deleteDocument);
-router.patch('/:id/favorite', validate(favoriteToggleSchema), documentsController.toggleFavorite);
-router.patch('/:id/folder', validate(moveFolderSchema), documentsController.moveToFolder);
+router.patch('/:id', requireActiveAccount, validate(updateDocumentSchema), documentsController.updateDocument);
+router.delete('/:id', requireActiveAccount, validate(documentIdParamSchema), documentsController.deleteDocument);
+router.patch('/:id/favorite', requireActiveAccount, validate(favoriteToggleSchema), documentsController.toggleFavorite);
+router.patch('/:id/folder', requireActiveAccount, validate(moveFolderSchema), documentsController.moveToFolder);
 
 export const documentsRoutes = router;

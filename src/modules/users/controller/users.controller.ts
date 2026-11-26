@@ -8,8 +8,7 @@ export class UsersController {
 
   getProfile = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const userId = req.user!.userId;
-      const profile = await this.usersService.getProfile(userId);
+      const profile = await this.usersService.getProfile(req.user!.userId);
       ApiResponse.success(res, 'Profile fetched successfully', profile);
     } catch (error) {
       next(error);
@@ -18,8 +17,7 @@ export class UsersController {
 
   updateProfile = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const userId = req.user!.userId;
-      const updated = await this.usersService.updateProfile(userId, req.body);
+      const updated = await this.usersService.updateProfile(req.user!.userId, req.body);
       ApiResponse.success(res, 'Profile updated successfully', updated);
     } catch (error) {
       next(error);
@@ -28,8 +26,7 @@ export class UsersController {
 
   changePassword = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const userId = req.user!.userId;
-      await this.usersService.changePassword(userId, req.body);
+      await this.usersService.changePassword(req.user!.userId, req.body);
       ApiResponse.success(res, 'Password changed successfully');
     } catch (error) {
       next(error);
@@ -38,9 +35,13 @@ export class UsersController {
 
   deleteAccount = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const userId = req.user!.userId;
-      await this.usersService.deleteAccount(userId);
-      ApiResponse.success(res, 'Account deleted successfully');
+      const result = await this.usersService.deleteAccount(req.user!.userId);
+      if (result.status === 'COMPLETED') {
+        ApiResponse.success(res, 'Account deletion was already completed', result, 200);
+        return;
+      }
+      // 202 reflects that cleanup is durably queued but still asynchronous.
+      ApiResponse.success(res, 'Account deletion accepted; cleanup is continuing', result, 202);
     } catch (error) {
       next(error);
     }
