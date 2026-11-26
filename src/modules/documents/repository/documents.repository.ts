@@ -24,6 +24,8 @@ const documentIncludeFull = {
 const PRESIGNED_URL_SAFETY_MS = 65 * 60 * 1000;
 
 export class DocumentsRepository {
+  constructor(private readonly db = prisma) {}
+
   private async assertNotTombstoned(
     tx: Prisma.TransactionClient,
     userId: string,
@@ -137,11 +139,11 @@ export class DocumentsRepository {
     const limit = filters?.limit && filters.limit > 0 ? filters.limit : 20;
     const skip = (page - 1) * limit;
 
-    const [totalCount, documents] = await prisma.$transaction([
-      prisma.document.count({ where }),
-      prisma.document.findMany({
+    const [totalCount, documents] = await this.db.$transaction([
+      this.db.document.count({ where }),
+      this.db.document.findMany({
         where,
-        include: { folder: { select: { id: true, name: true } } },
+        include: documentIncludeFull,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
