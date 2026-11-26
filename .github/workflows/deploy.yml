@@ -76,6 +76,7 @@ jobs:
               echo "Deployment blocked: production migration baseline requires database verification."
               exit 1
             fi
+            node dist/scripts/reconcile-phase1-schema.js
             npx prisma migrate deploy
 
             echo "🔄 Restarting PM2 process..."
