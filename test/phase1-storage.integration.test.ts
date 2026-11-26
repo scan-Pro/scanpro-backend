@@ -128,6 +128,13 @@ test(
 
     try {
       await createUser(userId);
+      await prisma.refreshToken.create({
+        data: {
+          userId,
+          tokenHash: `hash-${randomUUID()}`,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
       await prisma.document.create({
         data: {
           id: documentId,
@@ -168,6 +175,7 @@ test(
 
       const deletingUser = await prisma.user.findUnique({ where: { id: userId } });
       assert.equal(deletingUser?.lifecycleStatus, 'DELETING');
+      assert.equal(await prisma.refreshToken.count({ where: { userId } }), 0);
       assert.equal(await prisma.document.count({ where: { id: documentId, userId } }), 1);
 
       const cleanupBatch = await service.processPendingDeletionBatch(10);

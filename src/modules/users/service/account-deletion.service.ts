@@ -21,21 +21,25 @@ export interface CleanupBatchResult {
 }
 
 export class AccountDeletionService {
-  constructor(private readonly uploadsService: UploadsService = new UploadsService()) {}
+  constructor(
+    private readonly uploadsService: UploadsService = new UploadsService(),
+    private readonly db: typeof prisma = prisma,
+  ) {}
 
   /**
-   * Fences new writes immediately, snapshots every referenced/granted cloud
-   * object, creates durable cleanup jobs, and only then returns. User metadata
-   * remains present until the worker verifies cleanup completion.
+   * Fences new writes immediately, revokes active refresh sessions, snapshots
+   * every referenced/granted cloud object, creates durable cleanup jobs, and
+   * only then returns. User metadata remains present until the worker verifies
+   * cleanup completion.
    */
   async requestDeletion(userId: string): Promise<
     | { status: 'DELETING'; jobId: string }
     | { status: 'COMPLETED'; jobId?: string; completedAt: Date }
   > {
     const completedResult = async () => {
-      const receipt = await prisma.accountDeletionReceipt.findUnique({ where: { userId } });
+      const receipt = await this.db.accountDeletionReceipt.findUnique({ where: { userId } });
       if (!receipt) return null;
-      const job = await prisma.accountDeletionJob.findUnique({ where: { userId }, select: { id: true } });
+      const job = await this.db.accountDeletionJob.findUnique({ where: { userId }, select: { id: true } });
       return {
         status: 'COMPLETED' as const,
         ...(job ? { jobId: job.id } : {}),
@@ -47,10 +51,11 @@ export class AccountDeletionService {
     if (priorCompletion) return priorCompletion;
 
     try {
-      return await prisma.$transaction(async (tx) => {
+      return await this.db.$transaction(async (tx) => {
       const lifecycle = await lockUserLifecycle(tx, userId);
       const existingJob = await tx.accountDeletionJob.findUnique({ where: { userId } });
       if (lifecycle === 'DELETING' && existingJob) {
+        await tx.refreshToken.deleteMany({ where: { userId } });
         return { status: 'DELETING' as const, jobId: existingJob.id };
       }
 
@@ -66,6 +71,7 @@ export class AccountDeletionService {
         where: { id: userId },
         data: { lifecycleStatus: 'DELETING' },
       });
+      await tx.refreshToken.deleteMany({ where: { userId } });
 
       const job = existingJob
         ? await tx.accountDeletionJob.update({
@@ -227,7 +233,7 @@ export class AccountDeletionService {
           throw new Error('Cleanup job has no exact bucket/key; operator inventory required');
         }
         await this.uploadsService.deleteObject(claim.bucket, claim.objectKey, claim.userId);
-        const acknowledged = await prisma.$transaction(async (tx) => {
+        const acknowledged = await this.db.$transaction(async (tx) => {
           const result = await tx.pendingDeletion.updateMany({
             where: { id: claim.id, status: 'PROCESSING', claimToken: claim.claimToken },
             data: { status: 'COMPLETED', claimToken: null, leaseExpiresAt: null, lastError: null },
@@ -254,7 +260,7 @@ export class AccountDeletionService {
   private async claimPendingDeletions(limit: number): Promise<Array<{
     id: string; userId: string; bucket: string | null; objectKey: string | null; attempts: number; claimToken: string;
   }>> {
-    return prisma.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{
         id: string; user_id: string; bucket: string | null; object_key: string | null;
         status: string; attempts: number;
@@ -311,7 +317,7 @@ export class AccountDeletionService {
     claim: { id: string; claimToken: string; attempts: number },
     message: string,
   ): Promise<'STALE' | 'FAILED' | 'DEAD_LETTER'> {
-    return prisma.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
       const nextAttempts = claim.attempts + 1;
       const terminal = nextAttempts >= MAX_ATTEMPTS;
       const result = await tx.pendingDeletion.updateMany({
@@ -357,7 +363,7 @@ export class AccountDeletionService {
   private async claimAccountDeletionJobs(limit: number): Promise<Array<{
     id: string; userId: string; attempts: number; claimToken: string;
   }>> {
-    return prisma.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<Array<{
         id: string; user_id: string; status: string; attempts: number;
       }>>`
@@ -396,7 +402,7 @@ export class AccountDeletionService {
   private async finalizeOrRescheduleAccountDeletion(
     claim: { id: string; userId: string; claimToken: string },
   ): Promise<'COMPLETED' | 'WAITING' | 'FAILED'> {
-    return prisma.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
       const ownedJob = await tx.accountDeletionJob.findFirst({
         where: { id: claim.id, userId: claim.userId, status: 'PROCESSING', claimToken: claim.claimToken },
       });
@@ -465,7 +471,7 @@ export class AccountDeletionService {
   ): Promise<void> {
     const nextAttempts = claim.attempts + 1;
     const terminal = nextAttempts >= MAX_ATTEMPTS;
-    await prisma.accountDeletionJob.updateMany({
+    await this.db.accountDeletionJob.updateMany({
       where: { id: claim.id, status: 'PROCESSING', claimToken: claim.claimToken },
       data: {
         status: terminal ? 'DEAD_LETTER' : 'PENDING',
@@ -482,12 +488,12 @@ export class AccountDeletionService {
 
   /** Controlled operator recovery for an account job that reached FAILED/DEAD_LETTER. */
   async requeueAccountDeletionJob(jobId: string): Promise<void> {
-    const job = await prisma.accountDeletionJob.findUnique({ where: { id: jobId } });
+    const job = await this.db.accountDeletionJob.findUnique({ where: { id: jobId } });
     if (!job) throw new NotFoundError('Account deletion job not found', 'ACCOUNT_DELETION_JOB_NOT_FOUND');
     if (job.status !== 'FAILED' && job.status !== 'DEAD_LETTER') {
       throw new ConflictError('Only failed or dead-letter account jobs can be requeued', 'ACCOUNT_DELETION_JOB_NOT_REQUEUEABLE');
     }
-    await prisma.accountDeletionJob.updateMany({
+    await this.db.accountDeletionJob.updateMany({
       where: { id: jobId, status: job.status, userId: job.userId },
       data: {
         status: 'PENDING',
@@ -501,7 +507,7 @@ export class AccountDeletionService {
 
   /** Controlled operator recovery: only failed/dead-letter exact-key jobs are requeued. */
   async requeueCleanupJob(jobId: string): Promise<void> {
-    await prisma.$transaction(async (tx) => {
+    await this.db.$transaction(async (tx) => {
       const job = await tx.pendingDeletion.findUnique({ where: { id: jobId } });
       if (!job) throw new NotFoundError('Cleanup job not found', 'CLEANUP_JOB_NOT_FOUND');
       if (!job.bucket || !job.objectKey) {
