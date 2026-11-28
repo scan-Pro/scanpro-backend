@@ -8,9 +8,11 @@ process.env.JWT_ACCESS_SECRET ??= 'test-access-secret-that-is-at-least-32-chars'
 process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret-that-is-at-least-32-chars';
 process.env.AWS_ACCESS_KEY_ID ??= 'test-access-key';
 process.env.AWS_SECRET_ACCESS_KEY ??= 'test-secret-key';
-process.env.AWS_REGION ??= 'us-east-005';
-process.env.AWS_S3_BUCKET ??= 'scaniro-app';
-process.env.AWS_ENDPOINT ??= 'https://s3.us-east-005.backblazeb2.com';
+process.env.AWS_REGION = 'us-east-005';
+process.env.AWS_S3_BUCKET = 'scaniro-app';
+process.env.AWS_ENDPOINT = 'https://s3.us-east-005.backblazeb2.com';
+
+const { env } = await import('../src/config/env.js');
 
 const { validate } = await import('../src/middlewares/validation.middleware.js');
 const { ValidationError } = await import('../src/common/errors/app-error.js');
@@ -168,7 +170,12 @@ test('createDocumentSchema still rejects non-string page thumbnailUrl values', a
 
 test('DocumentsService accepts nullable page thumbnailUrl without throwing INVALID_FILE_URL', async () => {
   const userId = '550e8400-e29b-41d4-a716-446655440010';
-  const ownPageImageUrl = `https://s3.us-east-005.backblazeb2.com/scaniro-app/pages/${userId}/page.jpg`;
+  const configuredOrigin = env.AWS_ENDPOINT.includes('backblazeb2.com')
+    ? `https://s3.${env.AWS_REGION}.backblazeb2.com`
+    : env.AWS_ENDPOINT.trim() !== ''
+      ? env.AWS_ENDPOINT.replace(/\/$/, '')
+      : `https://s3.${env.AWS_REGION}.amazonaws.com`;
+  const ownPageImageUrl = `${configuredOrigin}/${env.AWS_S3_BUCKET}/pages/${userId}/page.jpg`;
   const receivedDtos: unknown[] = [];
 
   const fakeRepo = {
