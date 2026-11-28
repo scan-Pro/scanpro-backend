@@ -29,3 +29,34 @@ export const logoutSchema = z.object({
     .optional()
     .default({}),
 });
+
+const emailSchema = z.string({ required_error: 'Email is required' }).email('Invalid email address format');
+const otpSchema = z.string({ required_error: 'OTP is required' }).regex(/^\d{6}$/, 'OTP must be 6 digits');
+const otpPurposeSchema = z.enum(['signup', 'reset']);
+
+export const verifyOtpSchema = z.object({
+  body: z.object({
+    email: emailSchema,
+    otp: otpSchema,
+    purpose: otpPurposeSchema,
+  }),
+});
+
+export const forgotPasswordSchema = z.object({
+  body: z.object({ email: emailSchema }),
+});
+
+export const resendOtpSchema = z.object({
+  body: z.object({
+    email: emailSchema,
+    purpose: otpPurposeSchema,
+  }),
+});
+
+export const resetPasswordSchema = z.object({
+  body: z.object({
+    email: emailSchema,
+    otp: otpSchema,
+    password: z.string({ required_error: 'Password is required' }).min(8, 'Password must be at least 8 characters'),
+  }),
+});

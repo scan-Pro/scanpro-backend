@@ -1,6 +1,7 @@
+import { timingSafeEqual } from 'node:crypto';
 import { prisma } from '../../../config/database.js';
-import { User, RefreshToken } from '@prisma/client';
-import { UnauthorizedError } from '../../../common/errors/app-error.js';
+import { EmailOtpPurpose, User, RefreshToken } from '@prisma/client';
+import { NotFoundError, UnauthorizedError } from '../../../common/errors/app-error.js';
 import { assertUserActive } from '../../../common/utils/account-lifecycle.util.js';
 
 export class AuthRepository {
@@ -16,13 +17,137 @@ export class AuthRepository {
     });
   }
 
-  async createUser(data: { name: string; email: string; passwordHash: string }): Promise<User> {
+  async createUser(data: {
+    name: string;
+    email: string;
+    passwordHash: string;
+    emailVerified?: boolean;
+  }): Promise<User> {
     return prisma.user.create({
       data: {
         name: data.name,
         email: data.email.toLowerCase(),
         passwordHash: data.passwordHash,
+        emailVerified: data.emailVerified ?? true,
       },
+    });
+  }
+
+  async saveOtp(
+    email: string,
+    purpose: EmailOtpPurpose,
+    codeHash: string,
+    expiresAt: Date,
+  ): Promise<void> {
+    const normalizedEmail = email.toLowerCase();
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: { id: true },
+    });
+    if (!user) throw new NotFoundError('Account no longer exists', 'USER_NOT_FOUND');
+
+    await prisma.emailOtp.upsert({
+      where: { email_purpose: { email: normalizedEmail, purpose } },
+      create: {
+        userId: user.id,
+        email: normalizedEmail,
+        purpose,
+        codeHash,
+        expiresAt,
+      },
+      update: { userId: user.id, codeHash, expiresAt, attempts: 0 },
+    });
+  }
+
+  async verifyOtp(
+    email: string,
+    purpose: EmailOtpPurpose,
+    codeHash: string,
+    consume: boolean,
+  ): Promise<boolean> {
+    return prisma.$transaction(async (tx) => {
+      const normalizedEmail = email.toLowerCase();
+      const now = new Date();
+      const otp = await tx.emailOtp.findUnique({
+        where: { email_purpose: { email: normalizedEmail, purpose } },
+      });
+      if (!otp || otp.expiresAt <= now || otp.attempts >= 5) return false;
+
+      if (!this.matchesOtpHash(otp.codeHash, codeHash)) {
+        await tx.emailOtp.updateMany({
+          where: { id: otp.id, attempts: { lt: 5 } },
+          data: { attempts: { increment: 1 } },
+        });
+        return false;
+      }
+
+      if (!consume) return true;
+
+      const consumed = await tx.emailOtp.deleteMany({
+        where: {
+          id: otp.id,
+          codeHash,
+          expiresAt: { gt: now },
+          attempts: { lt: 5 },
+        },
+      });
+      if (consumed.count !== 1) return false;
+
+      if (purpose === EmailOtpPurpose.SIGNUP) {
+        const verified = await tx.user.updateMany({
+          where: { email: normalizedEmail, emailVerified: false },
+          data: { emailVerified: true },
+        });
+        return verified.count === 1;
+      }
+      return true;
+    });
+  }
+
+  async completePasswordReset(
+    email: string,
+    codeHash: string,
+    passwordHash: string,
+  ): Promise<boolean> {
+    return prisma.$transaction(async (tx) => {
+      const normalizedEmail = email.toLowerCase();
+      const now = new Date();
+      const otp = await tx.emailOtp.findUnique({
+        where: {
+          email_purpose: {
+            email: normalizedEmail,
+            purpose: EmailOtpPurpose.PASSWORD_RESET,
+          },
+        },
+      });
+      if (!otp || otp.expiresAt <= now || otp.attempts >= 5) return false;
+      if (!this.matchesOtpHash(otp.codeHash, codeHash)) {
+        await tx.emailOtp.updateMany({
+          where: { id: otp.id, attempts: { lt: 5 } },
+          data: { attempts: { increment: 1 } },
+        });
+        return false;
+      }
+
+      const user = await tx.user.findUnique({ where: { email: normalizedEmail } });
+      if (!user || !user.emailVerified || user.lifecycleStatus !== 'ACTIVE') return false;
+
+      const consumed = await tx.emailOtp.deleteMany({
+        where: {
+          id: otp.id,
+          codeHash,
+          expiresAt: { gt: now },
+          attempts: { lt: 5 },
+        },
+      });
+      if (consumed.count !== 1) return false;
+
+      await tx.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+      });
+      await tx.refreshToken.deleteMany({ where: { userId: user.id } });
+      return true;
     });
   }
 
@@ -130,5 +255,11 @@ export class AuthRepository {
     await prisma.refreshToken.deleteMany({
       where: { userId },
     });
+  }
+
+  private matchesOtpHash(storedHash: string, submittedHash: string): boolean {
+    const stored = Buffer.from(storedHash, 'hex');
+    const submitted = Buffer.from(submittedHash, 'hex');
+    return stored.length === submitted.length && timingSafeEqual(stored, submitted);
   }
 }

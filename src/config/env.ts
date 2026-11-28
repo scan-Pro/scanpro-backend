@@ -11,6 +11,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET is required and must be at least 32 characters'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET is required and must be at least 32 characters'),
+  OTP_HASH_SECRET: z.string().min(32, 'OTP_HASH_SECRET is required and must be at least 32 characters'),
   JWT_ISSUER: z.string().min(1).default('scaniro-api'),
   JWT_AUDIENCE: z.string().min(1).default('scaniro-client'),
   // Kept short since access tokens are stateless (no revocation list) and
@@ -22,6 +23,15 @@ const envSchema = z.object({
   AWS_REGION: z.string().default('us-east-005'),
   AWS_ENDPOINT: z.string().optional().default(''),
   AWS_S3_BUCKET: z.string().default('scaniro-app'),
+  SMTP_HOST: z.string().min(1, 'SMTP_HOST is required'),
+  SMTP_PORT: z
+    .string()
+    .regex(/^\d+$/, 'SMTP_PORT must be a valid port number')
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(65535)),
+  SMTP_USER: z.string().min(1, 'SMTP_USER is required'),
+  SMTP_PASSWORD: z.string().min(1, 'SMTP_PASSWORD is required'),
+  SMTP_FROM: z.string().email('SMTP_FROM must be a valid email address'),
   CORS_ORIGIN: z.string().default('*'),
 });
 

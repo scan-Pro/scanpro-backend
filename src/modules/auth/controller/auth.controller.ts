@@ -14,6 +14,42 @@ export class AuthController {
     }
   };
 
+  verifyOtp = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      await this.authService.verifyOtp(req.body);
+      ApiResponse.success(res, 'OTP verified successfully');
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  forgotPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      await this.authService.forgotPassword(req.body);
+      ApiResponse.success(res, 'If the account exists, a password reset code has been sent');
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  resendOtp = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      await this.authService.resendOtp(req.body);
+      ApiResponse.success(res, 'If the request is eligible, a new code has been sent');
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  resetPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      await this.authService.resetPassword(req.body);
+      ApiResponse.success(res, 'Password reset successfully');
+    } catch (error) {
+      next(error);
+    }
+  };
+
   login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const result = await this.authService.login(req.body);

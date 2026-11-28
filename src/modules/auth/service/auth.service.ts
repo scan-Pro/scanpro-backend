@@ -1,10 +1,27 @@
 import bcrypt from 'bcrypt';
+import { createHmac, randomInt } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import ms from 'ms';
+import { EmailOtpPurpose } from '@prisma/client';
 import { AuthRepository } from '../repository/auth.repository.js';
-import { RegisterDto, LoginDto, RefreshTokenDto } from '../dto/auth.dto.js';
-import { ConflictError, UnauthorizedError } from '../../../common/errors/app-error.js';
+import {
+  EmailPurposeDto,
+  ForgotPasswordDto,
+  LoginDto,
+  OtpDto,
+  OtpPurpose,
+  RefreshTokenDto,
+  RegisterDto,
+  ResetPasswordDto,
+} from '../dto/auth.dto.js';
+import {
+  BadRequestError,
+  ConflictError,
+  ForbiddenError,
+  UnauthorizedError,
+} from '../../../common/errors/app-error.js';
 import { env } from '../../../config/env.js';
+import { OtpEmailSender, SmtpEmailService } from './email.service.js';
 import {
   hashRefreshToken,
   signScaniroToken,
@@ -33,6 +50,7 @@ interface AuthUser {
   email: string;
   passwordHash: string;
   createdAt: Date;
+  emailVerified?: boolean;
   lifecycleStatus?: 'ACTIVE' | 'DELETING';
 }
 
@@ -50,7 +68,25 @@ export interface AuthRepositoryPort {
     name: string;
     email: string;
     passwordHash: string;
+    emailVerified?: boolean;
   }): Promise<AuthUser>;
+  saveOtp(
+    email: string,
+    purpose: EmailOtpPurpose,
+    codeHash: string,
+    expiresAt: Date,
+  ): Promise<void>;
+  verifyOtp(
+    email: string,
+    purpose: EmailOtpPurpose,
+    codeHash: string,
+    consume: boolean,
+  ): Promise<boolean>;
+  completePasswordReset(
+    email: string,
+    codeHash: string,
+    passwordHash: string,
+  ): Promise<boolean>;
   saveRefreshToken(
     userId: string,
     tokenHash: string,
@@ -75,38 +111,75 @@ export interface AuthRepositoryPort {
 export class AuthService {
   constructor(
     private readonly authRepository: AuthRepositoryPort = new AuthRepository(),
+    private readonly emailSender: OtpEmailSender = new SmtpEmailService(),
   ) {}
 
-  async register(dto: RegisterDto): Promise<AuthResult> {
-    const existing = await this.authRepository.findUserByEmail(dto.email);
-    if (existing) {
+  async register(dto: RegisterDto): Promise<{ email: string }> {
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.authRepository.findUserByEmail(email);
+    if (existing && existing.emailVerified !== false) {
       throw new ConflictError('User with this email already exists', 'USER_ALREADY_EXISTS');
     }
 
-    const saltRounds = 10;
-    const passwordHash = await bcrypt.hash(dto.password, saltRounds);
-
-    const user = await this.authRepository.createUser({
+    const user = existing ?? await this.authRepository.createUser({
       name: dto.name.trim(),
-      email: dto.email.trim(),
-      passwordHash,
+      email,
+      passwordHash: await bcrypt.hash(dto.password, 10),
+      emailVerified: false,
     });
+    await this.sendOtp(user.email, 'signup');
+    return { email: user.email };
+  }
 
-    const tokens = await this.generateTokens(user.id, user.email);
+  async forgotPassword(dto: ForgotPasswordDto): Promise<void> {
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.authRepository.findUserByEmail(email);
+    if (user && user.emailVerified !== false && user.lifecycleStatus !== 'DELETING') {
+      await this.sendOtp(email, 'reset');
+    }
+  }
 
-    return {
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        createdAt: user.createdAt,
-      },
-      tokens,
-    };
+  async resendOtp(dto: EmailPurposeDto): Promise<void> {
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.authRepository.findUserByEmail(email);
+    if (!user || user.lifecycleStatus === 'DELETING') return;
+
+    if (dto.purpose === 'signup' && user.emailVerified === false) {
+      await this.sendOtp(email, 'signup');
+    } else if (dto.purpose === 'reset' && user.emailVerified === true) {
+      await this.sendOtp(email, 'reset');
+    }
+  }
+
+  async verifyOtp(dto: OtpDto): Promise<void> {
+    const email = dto.email.trim().toLowerCase();
+    const purpose = this.toOtpPurpose(dto.purpose);
+    const verified = await this.authRepository.verifyOtp(
+      email,
+      purpose,
+      this.hashOtp(email, dto.purpose, dto.otp),
+      dto.purpose === 'signup',
+    );
+    if (!verified) {
+      throw new BadRequestError('Invalid or expired OTP', 'OTP_INVALID_OR_EXPIRED');
+    }
+  }
+
+  async resetPassword(dto: ResetPasswordDto): Promise<void> {
+    const email = dto.email.trim().toLowerCase();
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const reset = await this.authRepository.completePasswordReset(
+      email,
+      this.hashOtp(email, 'reset', dto.otp),
+      passwordHash,
+    );
+    if (!reset) {
+      throw new BadRequestError('Invalid or expired OTP', 'OTP_INVALID_OR_EXPIRED');
+    }
   }
 
   async login(dto: LoginDto): Promise<AuthResult> {
-    const user = await this.authRepository.findUserByEmail(dto.email);
+    const user = await this.authRepository.findUserByEmail(dto.email.trim().toLowerCase());
     if (!user) {
       throw new UnauthorizedError('Invalid email or password', 'INVALID_CREDENTIALS');
     }
@@ -118,6 +191,10 @@ export class AuthService {
     const isValidPassword = await bcrypt.compare(dto.password, user.passwordHash);
     if (!isValidPassword) {
       throw new UnauthorizedError('Invalid email or password', 'INVALID_CREDENTIALS');
+    }
+
+    if (user.emailVerified === false) {
+      throw new ForbiddenError('Verify your email before signing in', 'EMAIL_NOT_VERIFIED');
     }
 
     const tokens = await this.generateTokens(user.id, user.email);
@@ -233,6 +310,29 @@ export class AuthService {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
     };
+  }
+
+  private async sendOtp(email: string, purpose: OtpPurpose): Promise<void> {
+    const otp = randomInt(100000, 1000000).toString();
+    await this.authRepository.saveOtp(
+      email,
+      this.toOtpPurpose(purpose),
+      this.hashOtp(email, purpose, otp),
+      new Date(Date.now() + 10 * 60 * 1000),
+    );
+    await this.emailSender.sendOtp(email, otp, purpose);
+  }
+
+  private hashOtp(email: string, purpose: OtpPurpose, otp: string): string {
+    return createHmac('sha256', env.OTP_HASH_SECRET)
+      .update(`${email}:${purpose}:${otp}`)
+      .digest('hex');
+  }
+
+  private toOtpPurpose(purpose: OtpPurpose): EmailOtpPurpose {
+    return purpose === 'signup'
+      ? EmailOtpPurpose.SIGNUP
+      : EmailOtpPurpose.PASSWORD_RESET;
   }
 
   private createTokenPair(userId: string, email: string) {

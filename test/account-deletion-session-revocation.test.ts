@@ -5,8 +5,14 @@ process.env.NODE_ENV ??= 'test';
 process.env.DATABASE_URL ??= 'mysql://test:test@127.0.0.1:3306/scaniro_test';
 process.env.JWT_ACCESS_SECRET ??= 'test-access-secret-that-is-at-least-32-chars';
 process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret-that-is-at-least-32-chars';
+process.env.OTP_HASH_SECRET ??= 'test-otp-hash-secret-that-is-at-least-32-chars';
 process.env.AWS_ACCESS_KEY_ID ??= 'test-access-key';
 process.env.AWS_SECRET_ACCESS_KEY ??= 'test-secret-key';
+process.env.SMTP_HOST ??= 'localhost';
+process.env.SMTP_PORT ??= '1025';
+process.env.SMTP_USER ??= 'test@example.com';
+process.env.SMTP_PASSWORD ??= 'test-smtp-password';
+process.env.SMTP_FROM ??= 'test@example.com';
 
 const { AccountDeletionService } = await import(
   '../src/modules/users/service/account-deletion.service.js'

@@ -8,8 +8,14 @@ process.env.NODE_ENV = 'test';
 process.env.DATABASE_URL = 'mysql://test:test@127.0.0.1:3306/scaniro_test';
 process.env.JWT_ACCESS_SECRET = 'test-access-secret-that-is-at-least-32-chars';
 process.env.JWT_REFRESH_SECRET = 'test-refresh-secret-that-is-at-least-32-chars';
+process.env.OTP_HASH_SECRET = 'test-otp-hash-secret-that-is-at-least-32-chars';
 process.env.AWS_ACCESS_KEY_ID = 'test-access-key';
 process.env.AWS_SECRET_ACCESS_KEY = 'test-secret-key';
+process.env.SMTP_HOST = 'localhost';
+process.env.SMTP_PORT = '1025';
+process.env.SMTP_USER = 'test@example.com';
+process.env.SMTP_PASSWORD = 'test-smtp-password';
+process.env.SMTP_FROM = 'test@example.com';
 
 const { env } = await import('../src/config/env.js');
 const { AuthService } = await import('../src/modules/auth/service/auth.service.js');
@@ -23,6 +29,7 @@ const { hashLegacyRefreshTokens } = await import(
   '../src/modules/auth/service/refresh-token-hash-migration.service.js'
 );
 const { UnauthorizedError } = await import('../src/common/errors/app-error.js');
+const { EmailOtpPurpose } = await import('@prisma/client');
 
 interface TestUser {
   id: string;
@@ -30,6 +37,13 @@ interface TestUser {
   email: string;
   passwordHash: string;
   createdAt: Date;
+  emailVerified?: boolean;
+}
+
+interface TestOtp {
+  codeHash: string;
+  expiresAt: Date;
+  attempts: number;
 }
 
 interface TestSession {
@@ -42,6 +56,7 @@ interface TestSession {
 
 class MemoryAuthRepository {
   readonly sessions = new Map<string, TestSession>();
+  readonly otps = new Map<string, TestOtp>();
   readonly user: TestUser = {
     id: 'user-1',
     name: 'Test User',
@@ -60,10 +75,61 @@ class MemoryAuthRepository {
     name: string;
     email: string;
     passwordHash: string;
+    emailVerified?: boolean;
   }): Promise<TestUser> {
     Object.assign(this.user, data);
     this.hasUser = true;
     return this.user;
+  }
+
+  async saveOtp(
+    email: string,
+    purpose: typeof EmailOtpPurpose[keyof typeof EmailOtpPurpose],
+    codeHash: string,
+    expiresAt: Date,
+  ): Promise<void> {
+    this.otps.set(`${email}:${purpose}`, { codeHash, expiresAt, attempts: 0 });
+  }
+
+  async verifyOtp(
+    email: string,
+    purpose: typeof EmailOtpPurpose[keyof typeof EmailOtpPurpose],
+    codeHash: string,
+    consume: boolean,
+  ): Promise<boolean> {
+    const key = `${email}:${purpose}`;
+    const otp = this.otps.get(key);
+    if (!otp || otp.expiresAt <= new Date() || otp.attempts >= 5) return false;
+    if (otp.codeHash !== codeHash) {
+      otp.attempts++;
+      return false;
+    }
+    if (consume) {
+      this.otps.delete(key);
+      if (purpose === EmailOtpPurpose.SIGNUP) this.user.emailVerified = true;
+    }
+    return true;
+  }
+
+  async completePasswordReset(
+    email: string,
+    codeHash: string,
+    passwordHash: string,
+  ): Promise<boolean> {
+    const key = `${email}:${EmailOtpPurpose.PASSWORD_RESET}`;
+    const otp = this.otps.get(key);
+    if (
+      !otp ||
+      otp.codeHash !== codeHash ||
+      otp.expiresAt <= new Date() ||
+      otp.attempts >= 5
+    ) {
+      return false;
+    }
+    this.otps.delete(key);
+    this.user.passwordHash = passwordHash;
+    this.sessions.clear();
+    return true;
   }
 
   async saveRefreshToken(
@@ -155,6 +221,34 @@ class MemoryAuthRepository {
     this.sessions.set(tokenHash, oldSession);
     return true;
   }
+}
+
+const sentCodes = new Map<string, string>();
+const emailSender = {
+  async sendOtp(email: string, otp: string, purpose: 'signup' | 'reset') {
+    sentCodes.set(`${email}:${purpose}`, otp);
+  },
+};
+
+function createAuthService(repository: MemoryAuthRepository): InstanceType<typeof AuthService> {
+  return new AuthService(repository, emailSender);
+}
+
+async function registerAndLogin(
+  service: InstanceType<typeof AuthService>,
+  email = 'test@example.com',
+) {
+  await service.register({
+    name: 'Test User',
+    email,
+    password: 'correct horse battery',
+  });
+  await service.verifyOtp({
+    email,
+    otp: sentCodes.get(`${email}:signup`)!,
+    purpose: 'signup',
+  });
+  return service.login({ email, password: 'correct horse battery' });
 }
 
 test('issues and verifies access and refresh JWTs with separate token purposes', () => {
@@ -360,14 +454,106 @@ test('authentication middleware accepts a valid access token and rejects expired
   assert.ok(wrongIssuerError instanceof UnauthorizedError);
 });
 
-test('stores only a refresh-token hash and rotates each token once', async () => {
+test('signup OTP gates login, is stored hashed, and can only be consumed once', async () => {
   const repository = new MemoryAuthRepository();
-  const service = new AuthService(repository);
-  const login = await service.register({
+  const service = createAuthService(repository);
+  const email = 'test@example.com';
+
+  await service.register({
+    name: 'Test User',
+    email,
+    password: 'correct horse battery',
+  });
+  const code = sentCodes.get(`${email}:signup`)!;
+  const storedOtp = repository.otps.get(`${email}:${EmailOtpPurpose.SIGNUP}`);
+  assert.ok(storedOtp);
+  assert.notEqual(storedOtp.codeHash, code);
+  await assert.rejects(
+    service.login({ email, password: 'correct horse battery' }),
+    (error: unknown) =>
+      (error as { code?: string }).code === 'EMAIL_NOT_VERIFIED',
+  );
+
+  await service.verifyOtp({ email, otp: code, purpose: 'signup' });
+  assert.equal(repository.user.emailVerified, true);
+  await assert.rejects(
+    service.verifyOtp({ email, otp: code, purpose: 'signup' }),
+  );
+  await service.login({ email, password: 'correct horse battery' });
+});
+
+test('password reset consumes its OTP and revokes existing refresh sessions', async () => {
+  const repository = new MemoryAuthRepository();
+  const service = createAuthService(repository);
+  await registerAndLogin(service);
+  assert.equal(repository.sessions.size, 1);
+
+  await service.forgotPassword({ email: 'test@example.com' });
+  const otp = sentCodes.get('test@example.com:reset')!;
+  await service.verifyOtp({
+    email: 'test@example.com',
+    otp,
+    purpose: 'reset',
+  });
+  await service.resetPassword({
+    email: 'test@example.com',
+    otp,
+    password: 'a different strong password',
+  });
+
+  assert.equal(repository.sessions.size, 0);
+  await assert.rejects(
+    service.login({
+      email: 'test@example.com',
+      password: 'correct horse battery',
+    }),
+    UnauthorizedError,
+  );
+  await service.login({
+    email: 'test@example.com',
+    password: 'a different strong password',
+  });
+  await assert.rejects(
+    service.resetPassword({
+      email: 'test@example.com',
+      otp,
+      password: 'yet another strong password',
+    }),
+  );
+});
+
+test('OTP rejects incorrect codes after five attempts', async () => {
+  const repository = new MemoryAuthRepository();
+  const service = createAuthService(repository);
+  await service.register({
     name: 'Test User',
     email: 'test@example.com',
     password: 'correct horse battery',
   });
+  const correctOtp = sentCodes.get('test@example.com:signup')!;
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    await assert.rejects(
+      service.verifyOtp({
+        email: 'test@example.com',
+        otp: '000000',
+        purpose: 'signup',
+      }),
+    );
+  }
+  await assert.rejects(
+    service.verifyOtp({
+      email: 'test@example.com',
+      otp: correctOtp,
+      purpose: 'signup',
+    }),
+  );
+});
+
+test('stores only a refresh-token hash and rotates each token once', async () => {
+  const repository = new MemoryAuthRepository();
+  const service = createAuthService(repository);
+  const login = await registerAndLogin(service);
   const stored = [...repository.sessions.keys()][0];
 
   assert.equal(stored, hashRefreshToken(login.tokens.refreshToken));
@@ -386,12 +572,8 @@ test('stores only a refresh-token hash and rotates each token once', async () =>
 
 test('concurrent refresh requests can consume one session only once', async () => {
   const repository = new MemoryAuthRepository();
-  const service = new AuthService(repository);
-  const login = await service.register({
-    name: 'Test User',
-    email: 'test@example.com',
-    password: 'correct horse battery',
-  });
+  const service = createAuthService(repository);
+  const login = await registerAndLogin(service);
 
   const results = await Promise.allSettled([
     service.refreshTokens({ refreshToken: login.tokens.refreshToken }),
@@ -404,7 +586,7 @@ test('concurrent refresh requests can consume one session only once', async () =
 
 test('rejects invalid and expired refresh tokens and enforces DB expiry', async () => {
   const repository = new MemoryAuthRepository();
-  const service = new AuthService(repository);
+  const service = createAuthService(repository);
 
   await assert.rejects(
     service.refreshTokens({ refreshToken: 'not-a-jwt' }),
@@ -421,11 +603,7 @@ test('rejects invalid and expired refresh tokens and enforces DB expiry', async 
     UnauthorizedError,
   );
 
-  const login = await service.register({
-    name: 'Test User',
-    email: 'test@example.com',
-    password: 'correct horse battery',
-  });
+  const login = await registerAndLogin(service);
   const storedHash = hashRefreshToken(login.tokens.refreshToken);
   const session = repository.sessions.get(storedHash)!;
   session.expiresAt = new Date(Date.now() - 1000);
@@ -438,12 +616,8 @@ test('rejects invalid and expired refresh tokens and enforces DB expiry', async 
 
 test('logout removes both hashed sessions and legacy raw refresh sessions', async () => {
   const repository = new MemoryAuthRepository();
-  const service = new AuthService(repository);
-  const login = await service.register({
-    name: 'Test User',
-    email: 'test@example.com',
-    password: 'correct horse battery',
-  });
+  const service = createAuthService(repository);
+  const login = await registerAndLogin(service);
 
   await service.logout(login.tokens.refreshToken);
   assert.equal(repository.sessions.size, 0);
@@ -451,16 +625,9 @@ test('logout removes both hashed sessions and legacy raw refresh sessions', asyn
 
 test('refresh-session revocation removes every session belonging to the user', async () => {
   const repository = new MemoryAuthRepository();
-  const service = new AuthService(repository);
-  await service.register({
-    name: 'Test User',
-    email: 'test@example.com',
-    password: 'correct horse battery',
-  });
-  await service.login({
-    email: 'test@example.com',
-    password: 'correct horse battery',
-  });
+  const service = createAuthService(repository);
+  await registerAndLogin(service);
+  await service.login({ email: 'test@example.com', password: 'correct horse battery' });
   assert.equal(repository.sessions.size, 2);
 
   await repository.deleteAllUserRefreshTokens(repository.user.id);

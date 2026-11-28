@@ -21,9 +21,9 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
 
 ---
 ### 🔐 Authentication Flow
-1. Register via \`POST /api/v1/auth/register\` or Login via \`POST /api/v1/auth/login\`.
-2. Copy the returned \`accessToken\`.
-3. Click the **Authorize** button (top right) and paste the token in the format: \`<your-token>\`.
+1. Register via \`POST /api/v1/auth/register\` and verify the emailed code with \`POST /api/v1/auth/verify-otp\` (\`purpose: signup\`).
+2. Use \`POST /api/v1/auth/forgot-password\`, verify the reset code, then submit it with the new password to \`POST /api/v1/auth/reset-password\`.
+3. Sign in via \`POST /api/v1/auth/login\` after email verification. Authenticated requests use the returned access token.
     `,
     contact: {
       name: 'ScanPro Engineering Team',
@@ -53,7 +53,7 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
   ],
   tags: [
     { name: 'Health', description: 'System health, status, and uptime checks' },
-    { name: 'Auth', description: 'User registration, login, token refresh, and logout' },
+    { name: 'Auth', description: 'Email OTP verification, password reset, login, token refresh, and logout' },
     { name: 'Users', description: 'User profile management and security' },
     { name: 'Folders', description: 'Create, read, update, and delete document folders' },
     { name: 'Documents', description: 'Manage scanned multi-page documents and metadata' },
@@ -362,7 +362,10 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
                   properties: {
                     success: { type: 'boolean', example: true },
                     message: { type: 'string', example: 'User registered successfully' },
-                    data: { $ref: '#/components/schemas/AuthResponseData' },
+                    data: {
+                      type: 'object',
+                      properties: { email: { type: 'string', format: 'email', example: 'alex@example.com' } },
+                    },
                   },
                 },
               },
@@ -370,6 +373,100 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
           },
           422: { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
           409: { description: 'Email already exists', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        },
+      },
+    },
+    '/auth/verify-otp': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Verify an email or password-reset OTP',
+        description: 'Use purpose `signup` to activate a new account or `reset` to verify the code before password reset.',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email', 'otp', 'purpose'],
+                properties: {
+                  email: { type: 'string', format: 'email' },
+                  otp: { type: 'string', pattern: '^\\d{6}$' },
+                  purpose: { type: 'string', enum: ['signup', 'reset'] },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'OTP verified successfully' },
+          400: { description: 'Invalid or expired OTP', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        },
+      },
+    },
+    '/auth/forgot-password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Request a password-reset OTP',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email'],
+                properties: { email: { type: 'string', format: 'email' } },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: 'A reset code is sent when the account exists' } },
+      },
+    },
+    '/auth/resend-otp': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Resend a signup or password-reset OTP',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email', 'purpose'],
+                properties: {
+                  email: { type: 'string', format: 'email' },
+                  purpose: { type: 'string', enum: ['signup', 'reset'] },
+                },
+              },
+            },
+          },
+        },
+        responses: { 200: { description: 'A code is sent when the request is eligible' } },
+      },
+    },
+    '/auth/reset-password': {
+      post: {
+        tags: ['Auth'],
+        summary: 'Reset a password with a verified email OTP',
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                required: ['email', 'otp', 'password'],
+                properties: {
+                  email: { type: 'string', format: 'email' },
+                  otp: { type: 'string', pattern: '^\\d{6}$' },
+                  password: { type: 'string', minLength: 8 },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          200: { description: 'Password reset successfully; existing refresh sessions are revoked' },
+          400: { description: 'Invalid or expired OTP', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },
