@@ -47,9 +47,10 @@ src/
      "data": { ... }
    }
    ```
-4. **Database Safety**:
+4. **Database Safety & Mandatory Migrations**:
    - Multi-table operations MUST use `prisma.$transaction`.
    - Never write raw unescaped SQL queries.
+   - Whenever `prisma/schema.prisma` is updated and requires a DB change, ALWAYS create a corresponding migration under `prisma/migrations/` (using `npx prisma migrate dev` / `--create-only` or reviewed SQL matching `prisma/migrations/`, without altering already-applied migrations) and run `npx prisma generate` + `npx prisma validate`. Production deployment runs `npx prisma migrate deploy`—never skip migrations or rely on `prisma db push`.
 5. **No Breaking API Contracts**: Keep response keys and HTTP status codes consistent with what the Flutter frontend (`/scanpro`) expects.
 6. **Environment & Security**:
    - Never hardcode API keys or secrets in source code.

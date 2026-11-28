@@ -5,5 +5,6 @@
 - All requests MUST be validated with Zod schemas in `*.validation.ts`.
 - Protected routes MUST use `authenticate` middleware.
 - Database queries MUST use Prisma Client with transactions for multi-record operations.
+- Mandatory Prisma Migrations: Whenever `prisma/schema.prisma` changes and needs a DB update, ALWAYS create a migration in `prisma/migrations/` (plus `npx prisma generate && npx prisma validate`) so production `npx prisma migrate deploy` succeeds cleanly; never skip migrations or rely on `prisma db push`.
 - Always return standard response JSON: `{ success: boolean, message?: string, data?: any, error?: any }`.
 - NEVER rewrite or refactor unrelated working endpoints or architecture.
