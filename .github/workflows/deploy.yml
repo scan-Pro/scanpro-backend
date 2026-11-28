@@ -50,32 +50,7 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
-        run: |
-          node -e '
-            const fs = require("node:fs");
-            const keys = [
-              "OTP_HASH_SECRET",
-              "SMTP_HOST",
-              "SMTP_PORT",
-              "SMTP_USER",
-              "SMTP_PASSWORD",
-              "SMTP_FROM",
-            ];
-            const payload = {};
-            for (const key of keys) {
-              const value = process.env[key];
-              if (typeof value === "string" && value.trim() !== "") {
-                payload[key] = value;
-              }
-            }
-            const b64 = Object.keys(payload).length > 0
-              ? Buffer.from(JSON.stringify(payload), "utf8").toString("base64")
-              : "";
-            if (b64) {
-              console.log(`::add-mask::${b64}`);
-            }
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `b64=${b64}\n`);
-          '
+        run: node scripts/sync-deploy-env.mjs --prepare
 
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -99,77 +74,7 @@ jobs:
             git reset --hard origin/production
 
             echo "🔐 Ensuring production .env is loaded..."
-            if [ -n "${DEPLOY_ENV_OVERRIDES_B64:-}" ] && [ -f /srv/scaniro/.env ]; then
-              node -e '
-                const fs = require("node:fs");
-                const envPath = "/srv/scaniro/.env";
-                const overrides = JSON.parse(
-                  Buffer.from(process.env.DEPLOY_ENV_OVERRIDES_B64, "base64").toString("utf8")
-                );
-                const lines = fs.readFileSync(envPath, "utf8").split(/\r?\n/);
-                const updated = lines.map((line) => {
-                  const m = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/);
-                  if (m && Object.prototype.hasOwnProperty.call(overrides, m[1])) {
-                    const value = overrides[m[1]];
-                    delete overrides[m[1]];
-                    const quote = value.includes("\x27") ? JSON.stringify(value) : `\x27${value}\x27`;
-                    return `${m[1]}=${quote}`;
-                  }
-                  return line;
-                });
-                for (const [k, value] of Object.entries(overrides)) {
-                  const quote = value.includes("\x27") ? JSON.stringify(value) : `\x27${value}\x27`;
-                  updated.push(`${k}=${quote}`);
-                }
-                const cleaned = updated.filter((line, idx, arr) => idx < arr.length - 1 || line !== "");
-                fs.writeFileSync(envPath, cleaned.join("\n") + "\n", { mode: 0o600 });
-              '
-            fi
-            if [ -f /srv/scaniro/.env ]; then
-              cp /srv/scaniro/.env /srv/scaniro/backend/.env
-            fi
-            node -e '
-              const fs = require("node:fs");
-              const path = "/srv/scaniro/backend/.env";
-              if (!fs.existsSync(path)) {
-                console.error("Deployment blocked: /srv/scaniro/.env is missing on EC2.");
-                process.exit(1);
-              }
-              const required = [
-                "DATABASE_URL",
-                "JWT_ACCESS_SECRET",
-                "JWT_REFRESH_SECRET",
-                "OTP_HASH_SECRET",
-                "AWS_ACCESS_KEY_ID",
-                "AWS_SECRET_ACCESS_KEY",
-                "SMTP_HOST",
-                "SMTP_PORT",
-                "SMTP_USER",
-                "SMTP_PASSWORD",
-                "SMTP_FROM",
-              ];
-              const present = new Set();
-              for (const rawLine of fs.readFileSync(path, "utf8").split(/\r?\n/)) {
-                const line = rawLine.trim();
-                if (!line || line.startsWith("#")) continue;
-                const eq = line.indexOf("=");
-                if (eq <= 0) continue;
-                const key = line.slice(0, eq).replace(/^export\s+/, "").trim();
-                const val = line.slice(eq + 1).trim();
-                if (key && val !== "" && val !== "\"\"" && val !== "\x27\x27") {
-                  present.add(key);
-                }
-              }
-              const missing = required.filter((k) => !present.has(k));
-              if (missing.length > 0) {
-                console.error(
-                  "Deployment blocked: /srv/scaniro/.env is missing required keys: " +
-                  missing.join(", ") +
-                  ". Add them to /srv/scaniro/.env on EC2 or configure matching GitHub Actions Secrets."
-                );
-                process.exit(1);
-              }
-            '
+            node scripts/sync-deploy-env.mjs
 
             echo "📦 Installing dependencies..."
             npm ci
