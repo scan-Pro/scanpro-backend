@@ -62,7 +62,7 @@ jobs:
             cp /srv/scaniro/.env /srv/scaniro/backend/.env
 
             echo "📦 Installing dependencies..."
-            npm ci --omit=dev
+            npm ci
 
             echo "🔧 Generating Prisma Client..."
             npx prisma generate
