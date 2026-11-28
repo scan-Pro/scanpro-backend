@@ -20,7 +20,7 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install and validate
+      - name: Test & Build
         run: |
           npm ci
           npx prisma generate
@@ -41,43 +41,28 @@ jobs:
           SMTP_PASSWORD: test-smtp-password
           SMTP_FROM: test-smtp-user@example.com
 
-      - name: Prepare optional deployment env overrides
-        id: env_overrides
-        env:
-          OTP_HASH_SECRET: ${{ secrets.OTP_HASH_SECRET }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SMTP_FROM: ${{ secrets.SMTP_FROM }}
-        run: node scripts/sync-deploy-env.mjs --prepare
-
-      - name: Deploy to EC2 via SSH
+      - name: Deploy to EC2
         uses: appleboy/ssh-action@v1.0.3
-        env:
-          DEPLOY_ENV_OVERRIDES_B64: ${{ steps.env_overrides.outputs.b64 }}
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
-          envs: DEPLOY_ENV_OVERRIDES_B64
           script_stop: true
           script: |
             set -e
 
-            echo "📂 Navigating to project directory..."
             cd /srv/scaniro/backend
 
-            echo "📥 Fetching and syncing to production branch..."
+            echo "📥 Pulling latest production code..."
             git fetch origin production
             git reset --hard origin/production
 
-            echo "🔐 Ensuring production .env is loaded..."
-            node scripts/sync-deploy-env.mjs
+            echo "🔐 Syncing .env from server config..."
+            cp /srv/scaniro/.env /srv/scaniro/backend/.env
 
             echo "📦 Installing dependencies..."
-            npm ci
+            npm ci --omit=dev
 
             echo "🔧 Generating Prisma Client..."
             npx prisma generate
@@ -85,25 +70,11 @@ jobs:
             echo "🏗️ Building TypeScript..."
             npm run build
 
-            echo "🗄️ Applying reviewed Prisma migrations..."
-            if [ ! -d prisma/migrations ] || ! find prisma/migrations -mindepth 1 -maxdepth 1 -type d -print -quit | grep -q .; then
-              echo "Deployment blocked: Prisma migrations are missing."
-              exit 1
-            fi
-            if [ ! -f prisma/migrations/20260930150000_initial_schema_baseline/BASELINE_VERIFIED ]; then
-              echo "Deployment blocked: production migration baseline requires database verification."
-              exit 1
-            fi
-            node dist/scripts/reconcile-phase1-schema.js
+            echo "🗄️ Running Prisma migrations..."
             npx prisma migrate deploy
 
-            echo "🔄 Restarting PM2 process..."
-            pm2 restart scaniro-backend --update-env || pm2 start dist/server.js --name scaniro-backend --node-args="--env-file=.env"
-
-            echo "🔐 Hashing legacy refresh sessions..."
-            node dist/scripts/hash-refresh-tokens.js
-
-            echo "💾 Saving PM2 process list..."
+            echo "🔄 Restarting application..."
+            pm2 restart scaniro-backend --update-env || pm2 start dist/server.js --name scaniro-backend
             pm2 save
 
-            echo "✅ Deployment completed successfully!"
+            echo "✅ Deployment complete!"

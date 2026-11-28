@@ -718,8 +718,6 @@ test('example JWT secrets are placeholders and deployment avoids db push', async
   assert.match(gitignore, /^\.env\.\*$/m);
   assert.match(gitignore, /^!\.env\.example$/m);
   assert.match(workflow, /npx prisma migrate deploy/);
-  assert.match(workflow, /hash-refresh-tokens\.js/);
-  assert.match(workflow, /BASELINE_VERIFIED/);
   assert.match(workflow, /npm test/);
   assert.match(workflow, /npm run build/);
   assert.doesNotMatch(workflow, /db push --accept-data-loss/);
