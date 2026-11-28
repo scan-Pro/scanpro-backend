@@ -43,6 +43,125 @@ export class DocumentsRepository {
     }
   }
 
+  private collectDocumentHttpUrls(doc: {
+    thumbnailUrl?: string | null;
+    pdfUrl?: string | null;
+    pages?: Array<{ imageUrl: string; thumbnailUrl?: string | null }>;
+  }): string[] {
+    return [
+      doc.thumbnailUrl,
+      doc.pdfUrl,
+      ...(doc.pages ?? []).flatMap((page) => [page.imageUrl, page.thumbnailUrl]),
+    ].filter((value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value));
+  }
+
+  private async enqueuePendingDeletionsForUrls(
+    tx: Prisma.TransactionClient,
+    documentId: string,
+    userId: string,
+    urls: string[],
+    resolveObjectUrl: ResolveOwnedObjectUrl,
+    exclusions?: {
+      excludedRawUrls?: Set<string>;
+      excludedTargetKeys?: Set<string>;
+    },
+  ): Promise<void> {
+    const targets = new Map<string, { fileUrl: string; bucket: string; key: string }>();
+    const unsafe = new Map<string, string>();
+    for (const url of urls) {
+      if (exclusions?.excludedRawUrls?.has(url)) continue;
+      try {
+        const target = resolveObjectUrl(url, userId);
+        const targetKey = `${target.bucket}\u0000${target.key}`;
+        if (exclusions?.excludedTargetKeys?.has(targetKey)) continue;
+        targets.set(targetKey, { fileUrl: url, ...target });
+      } catch (error) {
+        unsafe.set(
+          url,
+          error instanceof Error ? error.message : 'Object URL could not be validated',
+        );
+      }
+    }
+
+    if (targets.size === 0 && unsafe.size === 0) return;
+
+    const now = new Date();
+    const safeDefaultTime = new Date(now.getTime() + PRESIGNED_URL_SAFETY_MS);
+    for (const target of targets.values()) {
+      const grants = await tx.uploadGrant.findMany({
+        where: { userId, bucket: target.bucket, objectKey: target.key },
+        select: { expiresAt: true },
+      });
+      const grantSafeTime = grants.length === 0
+        ? safeDefaultTime
+        : grants.reduce((latest, grant) => {
+            const expiryWithMargin = new Date(grant.expiresAt.getTime() + 5 * 60 * 1000);
+            return expiryWithMargin > latest ? expiryWithMargin : latest;
+          }, now);
+      await tx.pendingDeletion.create({
+        data: {
+          fileUrl: target.fileUrl,
+          bucket: target.bucket,
+          objectKey: target.key,
+          documentId,
+          userId,
+          status: 'PENDING',
+          availableAt: grantSafeTime,
+        },
+      });
+    }
+
+    for (const [fileUrl, reason] of unsafe) {
+      await tx.pendingDeletion.create({
+        data: {
+          fileUrl,
+          bucket: null,
+          objectKey: null,
+          documentId,
+          userId,
+          status: 'FAILED',
+          lastError: `Requires operator inventory: ${reason}`,
+        },
+      });
+    }
+  }
+
+  private async enqueueReplacedObjectDeletions(
+    tx: Prisma.TransactionClient,
+    documentId: string,
+    userId: string,
+    previous: DocumentWithRelations,
+    updated: DocumentWithRelations,
+    resolveObjectUrl?: ResolveOwnedObjectUrl,
+  ): Promise<void> {
+    if (!resolveObjectUrl) return;
+    const previousUrls = this.collectDocumentHttpUrls(previous);
+    if (previousUrls.length === 0) return;
+
+    const retainedRawUrls = new Set(this.collectDocumentHttpUrls(updated));
+    const retainedTargetKeys = new Set<string>();
+    for (const url of retainedRawUrls) {
+      try {
+        const target = resolveObjectUrl(url, userId);
+        retainedTargetKeys.add(`${target.bucket}\u0000${target.key}`);
+      } catch {
+        // Keep raw URL exclusion fallback when a retained URL cannot be resolved.
+      }
+    }
+
+    await this.enqueuePendingDeletionsForUrls(
+      tx,
+      documentId,
+      userId,
+      previousUrls,
+      resolveObjectUrl,
+      {
+        excludedRawUrls: retainedRawUrls,
+        excludedTargetKeys: retainedTargetKeys,
+      },
+    );
+  }
+
   private async writePages(
     tx: Prisma.TransactionClient,
     documentId: string,
@@ -64,14 +183,18 @@ export class DocumentsRepository {
     });
   }
 
-  async createDocument(userId: string, data: CreateDocumentDto): Promise<DocumentWithRelations> {
-    return prisma.$transaction(async (tx) => {
+  async createDocument(
+    userId: string,
+    data: CreateDocumentDto,
+    resolveObjectUrl?: ResolveOwnedObjectUrl,
+  ): Promise<DocumentWithRelations> {
+    return this.db.$transaction(async (tx) => {
       await assertUserActive(tx, userId);
       if (data.id) {
         await this.assertNotTombstoned(tx, userId, data.id);
         const existing = await tx.document.findFirst({
           where: { id: data.id, userId },
-          select: { id: true },
+          include: documentIncludeFull,
         });
         if (existing) {
           await tx.document.updateMany({
@@ -87,10 +210,19 @@ export class DocumentsRepository {
             },
           });
           await this.writePages(tx, data.id, data.pages);
-          return tx.document.findFirstOrThrow({
+          const updated = await tx.document.findFirstOrThrow({
             where: { id: data.id, userId },
             include: documentIncludeFull,
           });
+          await this.enqueueReplacedObjectDeletions(
+            tx,
+            data.id,
+            userId,
+            existing,
+            updated,
+            resolveObjectUrl,
+          );
+          return updated;
         }
       }
 
@@ -153,7 +285,7 @@ export class DocumentsRepository {
   }
 
   async findById(id: string, userId: string): Promise<DocumentWithRelations | null> {
-    return prisma.document.findFirst({
+    return this.db.document.findFirst({
       where: { id, userId },
       include: documentIncludeFull,
     });
@@ -163,10 +295,17 @@ export class DocumentsRepository {
     id: string,
     userId: string,
     data: UpdateDocumentDto,
+    resolveObjectUrl?: ResolveOwnedObjectUrl,
   ): Promise<DocumentWithRelations> {
-    return prisma.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
       await assertUserActive(tx, userId);
       await this.assertNotTombstoned(tx, userId, id);
+      const previous = await tx.document.findFirst({
+        where: { id, userId },
+        include: documentIncludeFull,
+      });
+      if (!previous) throw new NotFoundError('Document not found', 'DOCUMENT_NOT_FOUND');
+
       const { count } = await tx.document.updateMany({
         where: { id, userId },
         data: {
@@ -185,10 +324,19 @@ export class DocumentsRepository {
       });
       if (count === 0) throw new NotFoundError('Document not found', 'DOCUMENT_NOT_FOUND');
       await this.writePages(tx, id, data.pages);
-      return tx.document.findFirstOrThrow({
+      const updated = await tx.document.findFirstOrThrow({
         where: { id, userId },
         include: documentIncludeFull,
       });
+      await this.enqueueReplacedObjectDeletions(
+        tx,
+        id,
+        userId,
+        previous,
+        updated,
+        resolveObjectUrl,
+      );
+      return updated;
     });
   }
 
@@ -197,7 +345,7 @@ export class DocumentsRepository {
     userId: string,
     resolveObjectUrl: ResolveOwnedObjectUrl,
   ): Promise<void> {
-    await prisma.$transaction(async (tx) => {
+    await this.db.$transaction(async (tx) => {
       await assertUserActive(tx, userId);
       const document = await tx.document.findFirst({
         where: { id, userId },
@@ -212,62 +360,8 @@ export class DocumentsRepository {
         update: {},
       });
 
-      const urls = [
-        document.thumbnailUrl,
-        document.pdfUrl,
-        ...(document.pages ?? []).flatMap((page) => [page.imageUrl, page.thumbnailUrl]),
-      ].filter((value): value is string => typeof value === 'string' && /^https?:\/\//i.test(value));
-
-      const targets = new Map<string, { fileUrl: string; bucket: string; key: string }>();
-      const unsafe = new Map<string, string>();
-      for (const url of urls) {
-        try {
-          const target = resolveObjectUrl(url, userId);
-          targets.set(`${target.bucket}\u0000${target.key}`, { fileUrl: url, ...target });
-        } catch (error) {
-          unsafe.set(url, error instanceof Error ? error.message : 'Object URL could not be validated');
-        }
-      }
-
-      const now = new Date();
-      const safeDefaultTime = new Date(now.getTime() + PRESIGNED_URL_SAFETY_MS);
-      for (const target of targets.values()) {
-        const grants = await tx.uploadGrant.findMany({
-          where: { userId, bucket: target.bucket, objectKey: target.key },
-          select: { expiresAt: true },
-        });
-        const grantSafeTime = grants.length === 0
-          ? safeDefaultTime
-          : grants.reduce((latest, grant) => {
-              const expiryWithMargin = new Date(grant.expiresAt.getTime() + 5 * 60 * 1000);
-              return expiryWithMargin > latest ? expiryWithMargin : latest;
-            }, now);
-        await tx.pendingDeletion.create({
-          data: {
-            fileUrl: target.fileUrl,
-            bucket: target.bucket,
-            objectKey: target.key,
-            documentId: id,
-            userId,
-            status: 'PENDING',
-            availableAt: grantSafeTime,
-          },
-        });
-      }
-
-      for (const [fileUrl, reason] of unsafe) {
-        await tx.pendingDeletion.create({
-          data: {
-            fileUrl,
-            bucket: null,
-            objectKey: null,
-            documentId: id,
-            userId,
-            status: 'FAILED',
-            lastError: `Requires operator inventory: ${reason}`,
-          },
-        });
-      }
+      const urls = this.collectDocumentHttpUrls(document);
+      await this.enqueuePendingDeletionsForUrls(tx, id, userId, urls, resolveObjectUrl);
 
       const deleted = await tx.document.deleteMany({ where: { id, userId } });
       if (deleted.count !== 1) {
@@ -277,7 +371,7 @@ export class DocumentsRepository {
   }
 
   async toggleFavorite(id: string, userId: string, isFavorite: boolean): Promise<DocumentWithRelations> {
-    return prisma.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
       await assertUserActive(tx, userId);
       await this.assertNotTombstoned(tx, userId, id);
       const { count } = await tx.document.updateMany({
@@ -290,7 +384,7 @@ export class DocumentsRepository {
   }
 
   async moveToFolder(id: string, userId: string, folderId: string | null): Promise<DocumentWithRelations> {
-    return prisma.$transaction(async (tx) => {
+    return this.db.$transaction(async (tx) => {
       await assertUserActive(tx, userId);
       await this.assertNotTombstoned(tx, userId, id);
       const { count } = await tx.document.updateMany({

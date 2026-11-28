@@ -12,10 +12,19 @@ export class DocumentsService {
     private readonly foldersRepository: FoldersRepository = new FoldersRepository(),
   ) {}
 
+  private readonly resolveOwnedObject = (
+    url: string,
+    ownerId: string,
+  ) => this.uploadsService.resolveOwnedObjectUrl(url, ownerId);
+
   async createDocument(userId: string, dto: CreateDocumentDto): Promise<DocumentWithRelations> {
     await this.assertFolderOwnership(dto.folderId, userId);
     await this.assertOwnFileUrls(userId, dto);
-    return this.documentsRepository.createDocument(userId, dto);
+    return this.documentsRepository.createDocument(
+      userId,
+      dto,
+      this.resolveOwnedObject,
+    );
   }
 
   async getDocuments(
@@ -53,14 +62,19 @@ export class DocumentsService {
     await this.assertOwnFileUrls(userId, dto);
     // The repository repeats ownership/tombstone/lifecycle checks under the
     // owner row lock; this avoids a stale preflight read authorizing a write.
-    return this.documentsRepository.updateDocument(id, userId, dto);
+    return this.documentsRepository.updateDocument(
+      id,
+      userId,
+      dto,
+      this.resolveOwnedObject,
+    );
   }
 
   async deleteDocument(id: string, userId: string): Promise<void> {
     await this.documentsRepository.deleteDocument(
       id,
       userId,
-      (url, ownerId) => this.uploadsService.resolveOwnedObjectUrl(url, ownerId),
+      this.resolveOwnedObject,
     );
   }
 

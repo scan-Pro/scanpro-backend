@@ -4,7 +4,7 @@ export interface CreateDocumentPageDto {
   id?: string;
   pageOrder: number;
   imageUrl: string;
-  thumbnailUrl?: string;
+  thumbnailUrl?: string | null;
   filter?: FilterType;
   rotation?: number;
 }
@@ -12,9 +12,9 @@ export interface CreateDocumentPageDto {
 export interface CreateDocumentDto {
   id?: string;
   title: string;
-  folderId?: string;
-  thumbnailUrl?: string;
-  pdfUrl?: string;
+  folderId?: string | null;
+  thumbnailUrl?: string | null;
+  pdfUrl?: string | null;
   pageCount?: number;
   isFavorite?: boolean;
   syncStatus?: SyncStatus;
@@ -26,8 +26,8 @@ export interface CreateDocumentDto {
 export interface UpdateDocumentDto {
   title?: string;
   folderId?: string | null;
-  thumbnailUrl?: string;
-  pdfUrl?: string;
+  thumbnailUrl?: string | null;
+  pdfUrl?: string | null;
   pageCount?: number;
   isFavorite?: boolean;
   pages?: CreateDocumentPageDto[];

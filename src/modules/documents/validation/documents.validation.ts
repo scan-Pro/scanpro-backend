@@ -6,7 +6,7 @@ export const createDocumentPageSchema = z.object({
   id: z.string().min(1).optional(),
   pageOrder: z.number().int().min(0),
   imageUrl: z.string().min(1, 'Image URL cannot be empty'),
-  thumbnailUrl: z.string().optional(),
+  thumbnailUrl: z.string().optional().nullable(),
   filter: filterTypeEnum.optional().default('ORIGINAL'),
   rotation: z.number().int().optional().default(0),
 });

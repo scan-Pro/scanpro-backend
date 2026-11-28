@@ -201,3 +201,77 @@ test(
     }
   },
 );
+
+test(
+  'MySQL: createDocument upsert and updateDocument queue replaced B2 objects into pending_deletions',
+  { skip: !runMysqlIntegration },
+  async () => {
+    const userId = randomUUID();
+    const documentId = randomUUID();
+    const page1Id = randomUUID();
+    const page2Id = randomUUID();
+    const thumbV1 = storageUrl(userId, 'thumb-v1.jpg');
+    const thumbV2 = storageUrl(userId, 'thumb-v2.jpg');
+    const pdfV1 = storageUrl(userId, 'doc-v1.pdf');
+    const pdfV2 = storageUrl(userId, 'doc-v2.pdf');
+    const page1Url = storageUrl(userId, 'page1.jpg');
+    const page2Url = storageUrl(userId, 'page2.jpg');
+    const repository = new DocumentsRepository();
+    const resolver = (_url: string, ownerId: string) => ({
+      bucket: 'scaniro-app',
+      key: `pages/${ownerId}/${_url.split('/').pop()}`,
+    });
+
+    try {
+      await createUser(userId);
+      await repository.createDocument(
+        userId,
+        {
+          id: documentId,
+          title: 'Version 1',
+          thumbnailUrl: thumbV1,
+          pdfUrl: pdfV1,
+          pages: [
+            { id: page1Id, pageOrder: 0, imageUrl: page1Url },
+            { id: page2Id, pageOrder: 1, imageUrl: page2Url },
+          ],
+        },
+        resolver,
+      );
+
+      await repository.createDocument(
+        userId,
+        {
+          id: documentId,
+          title: 'Version 2',
+          thumbnailUrl: thumbV2,
+          pdfUrl: pdfV1,
+          pages: [{ id: page1Id, pageOrder: 0, imageUrl: page1Url }],
+        },
+        resolver,
+      );
+
+      await repository.updateDocument(
+        documentId,
+        userId,
+        { pdfUrl: pdfV2 },
+        resolver,
+      );
+
+      const pendingRows = await prisma.pendingDeletion.findMany({
+        where: { userId, documentId },
+        orderBy: { objectKey: 'asc' },
+      });
+      assert.deepEqual(
+        pendingRows.map((row) => row.objectKey),
+        [
+          `pages/${userId}/doc-v1.pdf`,
+          `pages/${userId}/page2.jpg`,
+          `pages/${userId}/thumb-v1.jpg`,
+        ],
+      );
+    } finally {
+      await cleanupUser(userId);
+    }
+  },
+);
