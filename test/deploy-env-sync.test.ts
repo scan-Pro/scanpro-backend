@@ -59,11 +59,12 @@ test('prepareOverridesBase64 and syncAndValidateDeployEnv preserve existing vars
   }
 });
 
-test('syncAndValidateDeployEnv blocks cleanly when required keys are missing and overrides are empty', () => {
+test('syncAndValidateDeployEnv blocks when core infrastructure keys are missing (JWT, AWS)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scanpro-deploy-env-missing-'));
   try {
     const sourceEnvPath = path.join(dir, 'shared.env');
     const targetEnvPath = path.join(dir, 'backend.env');
+    // Only DATABASE_URL — missing JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, AWS_*
     fs.writeFileSync(sourceEnvPath, 'DATABASE_URL=mysql://user:pass@rds:3306/scaniro\n');
 
     assert.equal(prepareOverridesBase64({}), '');
@@ -75,7 +76,37 @@ test('syncAndValidateDeployEnv blocks cleanly when required keys are missing and
           targetEnvPath,
           overridesB64: '',
         }),
-      /missing required keys: .*OTP_HASH_SECRET.*SMTP_HOST/,
+      /missing required infrastructure keys: .*JWT_ACCESS_SECRET/,
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('syncAndValidateDeployEnv succeeds (with warning) when only SMTP/OTP keys are missing', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'scanpro-deploy-env-warn-'));
+  try {
+    const sourceEnvPath = path.join(dir, 'shared.env');
+    const targetEnvPath = path.join(dir, 'backend.env');
+    // All core infra present, SMTP/OTP absent → should NOT throw
+    fs.writeFileSync(
+      sourceEnvPath,
+      [
+        'DATABASE_URL=mysql://user:pass@rds:3306/scaniro',
+        'JWT_ACCESS_SECRET=existing-access-secret-at-least-32-chars',
+        'JWT_REFRESH_SECRET=existing-refresh-secret-at-least-32-chars',
+        'AWS_ACCESS_KEY_ID=test-access',
+        'AWS_SECRET_ACCESS_KEY=test-secret',
+      ].join('\n') + '\n',
+    );
+
+    // Should not throw — SMTP/OTP are warn-only
+    assert.doesNotThrow(() =>
+      syncAndValidateDeployEnv({
+        sourceEnvPath,
+        targetEnvPath,
+        overridesB64: '',
+      }),
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

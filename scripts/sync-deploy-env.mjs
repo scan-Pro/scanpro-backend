@@ -11,13 +11,21 @@ export const OVERRIDE_ENV_KEYS = [
   'SMTP_FROM',
 ];
 
+// Keys that MUST be present on EC2 for the deploy to proceed.
+// Core infrastructure keys only — app-level keys (SMTP, OTP) are warned below.
 export const REQUIRED_DEPLOY_ENV_KEYS = [
   'DATABASE_URL',
   'JWT_ACCESS_SECRET',
   'JWT_REFRESH_SECRET',
-  'OTP_HASH_SECRET',
   'AWS_ACCESS_KEY_ID',
   'AWS_SECRET_ACCESS_KEY',
+];
+
+// Keys that the application validates at startup; we warn (not block) if absent
+// so the first deploy after adding OTP/email features can proceed even before
+// GitHub Secrets or the EC2 .env have been manually updated.
+export const WARN_DEPLOY_ENV_KEYS = [
+  'OTP_HASH_SECRET',
   'SMTP_HOST',
   'SMTP_PORT',
   'SMTP_USER',
@@ -111,11 +119,26 @@ export function syncAndValidateDeployEnv({
   }
 
   const targetContent = fs.readFileSync(targetEnvPath, 'utf8');
-  const missing = findMissingEnvKeys(targetContent);
-  if (missing.length > 0) {
+
+  // Hard block: core infrastructure keys must be present.
+  const missingRequired = findMissingEnvKeys(targetContent, REQUIRED_DEPLOY_ENV_KEYS);
+  if (missingRequired.length > 0) {
     throw new Error(
-      `Deployment blocked: ${sourceEnvPath} is missing required keys: ${missing.join(', ')}. ` +
-        'Add them to /srv/scaniro/.env on EC2 or configure matching GitHub Actions Secrets.',
+      `Deployment blocked: ${sourceEnvPath} is missing required infrastructure keys: ${missingRequired.join(', ')}. ` +
+        'Add them to /srv/scaniro/.env on EC2.',
+    );
+  }
+
+  // Soft warn: application-level keys (SMTP, OTP). Missing after inject means
+  // GitHub Secrets are not configured yet — the app will error at startup, but
+  // the deploy itself can still proceed so the user can manually update EC2 .env.
+  const missingWarn = findMissingEnvKeys(targetContent, WARN_DEPLOY_ENV_KEYS);
+  if (missingWarn.length > 0) {
+    console.warn(
+      `⚠️  WARNING: ${sourceEnvPath} is missing application keys: ${missingWarn.join(', ')}. ` +
+        'The app may fail to start. Add these keys to /srv/scaniro/.env on EC2 ' +
+        'or configure matching GitHub Actions Secrets (OTP_HASH_SECRET, SMTP_HOST, ' +
+        'SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM) to auto-inject them on future deploys.',
     );
   }
 }
