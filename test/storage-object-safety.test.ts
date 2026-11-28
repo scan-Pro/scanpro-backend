@@ -36,6 +36,36 @@ test('resolves only a configured storage URL for the matching owner', () => {
       'user-1',
     ),
   );
+  assert.throws(() =>
+    service.resolveOwnedObjectUrl(
+      'http://s3.us-east-005.backblazeb2.com/scaniro-app/pages/user-1/abc123.jpg',
+      'user-1',
+    ),
+  );
+});
+
+test('accepts http object URLs only when AWS_ENDPOINT is explicitly configured with http://', async () => {
+  const { env } = await import('../src/config/env.js');
+  const previousEndpoint = env.AWS_ENDPOINT;
+  env.AWS_ENDPOINT = 'http://localhost:9000';
+  try {
+    const service = new UploadsService({ send: async () => ({}) } as unknown as S3Client);
+    assert.deepEqual(
+      service.resolveOwnedObjectUrl(
+        'http://localhost:9000/scaniro-app/pages/user-1/local-dev.png',
+        'user-1',
+      ),
+      { bucket: 'scaniro-app', key: 'pages/user-1/local-dev.png' },
+    );
+    assert.throws(() =>
+      service.resolveOwnedObjectUrl(
+        'https://localhost:9000/scaniro-app/pages/user-1/local-dev.png',
+        'user-1',
+      ),
+    );
+  } finally {
+    env.AWS_ENDPOINT = previousEndpoint;
+  }
 });
 
 test('rejects non-canonical keys and keys outside supported namespaces', async () => {

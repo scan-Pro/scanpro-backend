@@ -34,7 +34,8 @@ export class AuthController {
 
   logout = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { refreshToken } = req.body;
+      const rawRefreshToken = (req.body as { refreshToken?: unknown } | undefined)?.refreshToken;
+      const refreshToken = typeof rawRefreshToken === 'string' ? rawRefreshToken : undefined;
       await this.authService.logout(refreshToken);
       ApiResponse.success(res, 'Logged out successfully');
     } catch (error) {

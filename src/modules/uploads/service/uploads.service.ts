@@ -93,8 +93,11 @@ export class UploadsService {
     }
 
     const expectedPrefix = `/${env.AWS_S3_BUCKET}/`;
+    const isHttpScheme =
+      expectedBase.protocol === 'https:' || expectedBase.protocol === 'http:';
     if (
-      actual.protocol !== 'https:' ||
+      !isHttpScheme ||
+      actual.protocol !== expectedBase.protocol ||
       actual.origin !== expectedBase.origin ||
       !actual.pathname.startsWith(expectedPrefix)
     ) {
@@ -122,46 +125,6 @@ export class UploadsService {
     return { bucket: env.AWS_S3_BUCKET, key };
   }
 
-  /**
-   * Resolve a previously persisted file URL for deletion. This is still
-   * constrained to the configured origin/bucket and canonical key structure.
-   * Account/document owners are validated by the caller before this method.
-   */
-  resolveConfiguredObjectUrl(fileUrl: string): StorageObjectTarget {
-    let actual: URL;
-    let expectedBase: URL;
-    try {
-      actual = new URL(fileUrl);
-      expectedBase = new URL(this.publicFileUrl('placeholder'));
-    } catch {
-      throw new ForbiddenError('Invalid cloud object URL', 'INVALID_FILE_URL');
-    }
-
-    const prefix = `/${env.AWS_S3_BUCKET}/`;
-    if (actual.protocol !== 'https:' || actual.origin !== expectedBase.origin || !actual.pathname.startsWith(prefix)) {
-      throw new ForbiddenError('Object URL is outside configured storage', 'INVALID_FILE_URL');
-    }
-
-    let key: string;
-    try {
-      key = decodeURIComponent(actual.pathname.slice(prefix.length));
-    } catch {
-      throw new ForbiddenError('Malformed object key', 'INVALID_FILE_URL');
-    }
-
-    const segments = key.split('/');
-    if (
-      segments.length !== 3 ||
-      !allowedFolders.has(segments[0]) ||
-      !segments[1] ||
-      !segments[2] ||
-      segments.some((part) => !part || part === '.' || part === '..')
-    ) {
-      throw new ForbiddenError('Object key is not canonical', 'INVALID_FILE_URL');
-    }
-    return { bucket: env.AWS_S3_BUCKET, key };
-  }
-
   async deleteObject(bucket: string, key: string, expectedUserId: string): Promise<void> {
     if (bucket !== env.AWS_S3_BUCKET) {
       throw new ForbiddenError('Refusing to delete from an unconfigured bucket', 'INVALID_STORAGE_BUCKET');
@@ -180,10 +143,5 @@ export class UploadsService {
     // S3 DeleteObject is idempotent for a missing key. Intentionally propagate
     // errors so the durable worker can retry instead of falsely marking success.
     await this.client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
-  }
-
-  async deleteFileByUrl(fileUrl: string, userId: string): Promise<void> {
-    const target = this.resolveOwnedObjectUrl(fileUrl, userId);
-    await this.deleteObject(target.bucket, target.key, userId);
   }
 }

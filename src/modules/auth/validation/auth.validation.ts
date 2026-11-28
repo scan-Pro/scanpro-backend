@@ -20,3 +20,12 @@ export const refreshTokenSchema = z.object({
     refreshToken: z.string({ required_error: 'Refresh token is required' }).min(1, 'Refresh token cannot be empty'),
   }),
 });
+
+export const logoutSchema = z.object({
+  body: z
+    .object({
+      refreshToken: z.string().optional().nullable(),
+    })
+    .optional()
+    .default({}),
+});

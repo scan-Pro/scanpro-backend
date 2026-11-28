@@ -213,7 +213,7 @@ export class AuthService {
     };
   }
 
-  async logout(refreshToken: string): Promise<void> {
+  async logout(refreshToken?: string | null): Promise<void> {
     if (refreshToken) {
       await this.authRepository.deleteRefreshToken(
         hashRefreshToken(refreshToken),

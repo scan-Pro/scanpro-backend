@@ -45,6 +45,8 @@ async function runValidateMiddleware(
 test('createDocumentPageSchema allows null, undefined, and string thumbnailUrl across POST and PATCH schemas', async () => {
   const userId = '550e8400-e29b-41d4-a716-446655440000';
   const docId = '550e8400-e29b-41d4-a716-446655440001';
+  const page1Id = '550e8400-e29b-41d4-a716-446655440002';
+  const page2Id = '550e8400-e29b-41d4-a716-446655440003';
   const pageImgUrl = `https://s3.us-east-005.backblazeb2.com/scaniro-app/pages/${userId}/p1.jpg`;
   const pageThumbUrl = `https://s3.us-east-005.backblazeb2.com/scaniro-app/thumbnails/${userId}/t1.jpg`;
 
@@ -61,7 +63,7 @@ test('createDocumentPageSchema allows null, undefined, and string thumbnailUrl a
     updatedAt: '2026-11-28T10:00:00.000Z',
     pages: [
       {
-        id: 'page-1',
+        id: page1Id,
         pageOrder: 0,
         imageUrl: pageImgUrl,
         thumbnailUrl: null,
@@ -69,7 +71,7 @@ test('createDocumentPageSchema allows null, undefined, and string thumbnailUrl a
         rotation: 0,
       },
       {
-        id: 'page-2',
+        id: page2Id,
         pageOrder: 1,
         imageUrl: pageImgUrl,
         thumbnailUrl: pageThumbUrl,
@@ -96,7 +98,7 @@ test('createDocumentPageSchema allows null, undefined, and string thumbnailUrl a
     body: {
       pages: [
         {
-          id: 'page-1',
+          id: page1Id,
           pageOrder: 0,
           imageUrl: pageImgUrl,
           thumbnailUrl: null,
@@ -113,6 +115,37 @@ test('createDocumentPageSchema allows null, undefined, and string thumbnailUrl a
     thumbnailUrl: null,
   });
   assert.equal(directParsed.thumbnailUrl, null);
+});
+
+test('document create and update schemas require UUID format consistently for document, page, and folder IDs', async () => {
+  const pageImgUrl = 'https://s3.us-east-005.backblazeb2.com/scaniro-app/pages/u/p1.jpg';
+  const validUuid = '550e8400-e29b-41d4-a716-446655440099';
+
+  const badDocId = await runValidateMiddleware(createDocumentSchema, {
+    body: { id: 'not-a-uuid', title: 'Bad Doc ID' },
+  });
+  assert.ok(badDocId.error instanceof ValidationError);
+  assert.equal(badDocId.error.statusCode, 422);
+
+  const badPageId = await runValidateMiddleware(createDocumentSchema, {
+    body: {
+      title: 'Bad Page ID',
+      pages: [{ id: 'not-a-uuid', pageOrder: 0, imageUrl: pageImgUrl }],
+    },
+  });
+  assert.ok(badPageId.error instanceof ValidationError);
+
+  const badFolderId = await runValidateMiddleware(updateDocumentSchema, {
+    params: { id: validUuid },
+    body: { folderId: 'not-a-uuid' },
+  });
+  assert.ok(badFolderId.error instanceof ValidationError);
+
+  const badParamId = await runValidateMiddleware(updateDocumentSchema, {
+    params: { id: 'not-a-uuid' },
+    body: { title: 'Updated' },
+  });
+  assert.ok(badParamId.error instanceof ValidationError);
 });
 
 test('createDocumentSchema still rejects non-string page thumbnailUrl values', async () => {

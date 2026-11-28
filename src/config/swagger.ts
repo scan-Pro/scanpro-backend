@@ -87,7 +87,17 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
             type: 'object',
             properties: {
               code: { type: 'string', example: 'VALIDATION_ERROR' },
-              details: { type: 'object' },
+              details: {
+                type: 'array',
+                nullable: true,
+                items: {
+                  type: 'object',
+                  properties: {
+                    field: { type: 'string', example: 'title' },
+                    message: { type: 'string', example: 'Title cannot be empty' },
+                  },
+                },
+              },
             },
           },
         },
@@ -100,7 +110,6 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
           id: { type: 'string', format: 'uuid', example: 'd3b07384-d113-4c56-8344-77dd7143e49e' },
           email: { type: 'string', format: 'email', example: 'alex@example.com' },
           name: { type: 'string', example: 'Alex Morgan' },
-          avatarUrl: { type: 'string', nullable: true, example: 'https://s3.amazonaws.com/scanpro/avatars/user.jpg' },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
         },
@@ -110,7 +119,6 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
         properties: {
           accessToken: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
           refreshToken: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
-          expiresIn: { type: 'string', example: '15m' },
         },
       },
       AuthResponseData: {
@@ -126,7 +134,13 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
           id: { type: 'string', format: 'uuid', example: 'e4a2d815-58a2-4a7b-b054-94c6efd2568a' },
           name: { type: 'string', example: 'Tax Invoices 2026' },
           userId: { type: 'string', format: 'uuid' },
-          documentCount: { type: 'integer', example: 4 },
+          _count: {
+            type: 'object',
+            nullable: true,
+            properties: {
+              documents: { type: 'integer', example: 4 },
+            },
+          },
           createdAt: { type: 'string', format: 'date-time' },
           updatedAt: { type: 'string', format: 'date-time' },
         },
@@ -163,7 +177,12 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
             items: { $ref: '#/components/schemas/DocumentPage' },
           },
           folder: {
-            $ref: '#/components/schemas/Folder',
+            type: 'object',
+            nullable: true,
+            properties: {
+              id: { type: 'string', format: 'uuid' },
+              name: { type: 'string', example: 'Tax Invoices 2026' },
+            },
           },
         },
       },
@@ -197,6 +216,7 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
         type: 'object',
         required: ['name'],
         properties: {
+          id: { type: 'string', format: 'uuid', description: 'Optional local client ID for idempotent synchronization', example: 'e4a2d815-58a2-4a7b-b054-94c6efd2568a' },
           name: { type: 'string', minLength: 1, maxLength: 50, example: 'Tax Receipts 2026' },
         },
       },
@@ -224,12 +244,14 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
         required: ['title'],
         properties: {
           id: { type: 'string', format: 'uuid', description: 'Optional local client ID for idempotent synchronization', example: 'f8c3d2e1-4b5a-6789-0123-456789abcdef' },
-          title: { type: 'string', minLength: 1, maxLength: 100, example: 'Office Lease Agreement' },
+          title: { type: 'string', minLength: 1, maxLength: 255, example: 'Office Lease Agreement' },
           folderId: { type: 'string', format: 'uuid', nullable: true, example: 'e4a2d815-58a2-4a7b-b054-94c6efd2568a' },
           thumbnailUrl: { type: 'string', nullable: true, example: 'https://s3.amazonaws.com/scanpro/thumbs/thumb.jpg' },
           pdfUrl: { type: 'string', nullable: true, example: 'https://s3.amazonaws.com/scanpro/pdfs/contract.pdf' },
-          pageCount: { type: 'integer', example: 2 },
+          pageCount: { type: 'integer', minimum: 1, default: 1, example: 2 },
           isFavorite: { type: 'boolean', default: false },
+          createdAt: { type: 'string', format: 'date-time' },
+          updatedAt: { type: 'string', format: 'date-time' },
           pages: {
             type: 'array',
             items: { $ref: '#/components/schemas/CreateDocumentPageDto' },
@@ -239,11 +261,16 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
       UpdateDocumentDto: {
         type: 'object',
         properties: {
-          title: { type: 'string', minLength: 1, maxLength: 100, example: 'Signed Lease Agreement' },
+          title: { type: 'string', minLength: 1, maxLength: 255, example: 'Signed Lease Agreement' },
           folderId: { type: 'string', format: 'uuid', nullable: true },
           thumbnailUrl: { type: 'string', nullable: true },
           pdfUrl: { type: 'string', nullable: true },
+          pageCount: { type: 'integer', minimum: 1 },
           isFavorite: { type: 'boolean' },
+          pages: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/CreateDocumentPageDto' },
+          },
         },
       },
       ToggleFavoriteDto: {
@@ -261,11 +288,20 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
       },
       GetPresignedUrlDto: {
         type: 'object',
-        required: ['fileName', 'fileType', 'folder'],
+        required: ['fileName', 'fileType'],
         properties: {
-          fileName: { type: 'string', example: 'scan_page_1.jpg' },
-          fileType: { type: 'string', example: 'image/jpeg' },
-          folder: { type: 'string', enum: ['pages', 'thumbnails', 'pdfs', 'avatars'], example: 'pages' },
+          fileName: { type: 'string', minLength: 1, maxLength: 255, example: 'scan_page_1.jpg' },
+          fileType: {
+            type: 'string',
+            enum: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+            example: 'image/jpeg',
+          },
+          folder: {
+            type: 'string',
+            enum: ['documents', 'pages', 'thumbnails', 'pdfs'],
+            default: 'documents',
+            example: 'pages',
+          },
         },
       },
     },
@@ -332,7 +368,7 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
               },
             },
           },
-          400: { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          422: { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
           409: { description: 'Email already exists', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
@@ -391,26 +427,39 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
                   properties: {
                     success: { type: 'boolean', example: true },
                     message: { type: 'string', example: 'Token refreshed successfully' },
-                    data: {
-                      type: 'object',
-                      properties: {
-                        tokens: { $ref: '#/components/schemas/AuthTokens' },
-                      },
-                    },
+                    data: { $ref: '#/components/schemas/AuthTokens' },
                   },
                 },
               },
             },
           },
           401: { description: 'Invalid or expired refresh token', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          422: { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },
     '/auth/logout': {
       post: {
         tags: ['Auth'],
-        summary: 'Logout user session',
-        security: [{ bearerAuth: [] }],
+        summary: 'Logout user session by revoking refresh token',
+        requestBody: {
+          required: false,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  refreshToken: {
+                    type: 'string',
+                    nullable: true,
+                    description: 'Refresh token to revoke. May be empty or omitted if no active token is stored.',
+                    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+                  },
+                },
+              },
+            },
+          },
+        },
         responses: {
           200: {
             description: 'Logged out successfully',
@@ -424,6 +473,12 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
                   },
                 },
               },
+            },
+          },
+          422: {
+            description: 'Validation error',
+            content: {
+              'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } },
             },
           },
         },
@@ -465,8 +520,7 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
               schema: {
                 type: 'object',
                 properties: {
-                  name: { type: 'string', example: 'Alex M.' },
-                  avatarUrl: { type: 'string', example: 'https://s3.amazonaws.com/scanpro/avatars/new.jpg' },
+                  name: { type: 'string', minLength: 2, example: 'Alex M.' },
                 },
               },
             },
@@ -487,6 +541,7 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
               },
             },
           },
+          422: { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },
@@ -525,7 +580,8 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
               },
             },
           },
-          400: { description: 'Incorrect current password or validation error' },
+          401: { description: 'Incorrect current password', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+          422: { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },
@@ -536,20 +592,49 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
         security: [{ bearerAuth: [] }],
         responses: {
           200: {
-            description: 'Account deleted successfully',
+            description: 'Account deletion was already completed',
             content: {
               'application/json': {
                 schema: {
                   type: 'object',
                   properties: {
                     success: { type: 'boolean', example: true },
-                    message: { type: 'string', example: 'Account deleted successfully' },
+                    message: { type: 'string', example: 'Account deletion was already completed' },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        status: { type: 'string', enum: ['COMPLETED'], example: 'COMPLETED' },
+                        jobId: { type: 'string', format: 'uuid', nullable: true },
+                        completedAt: { type: 'string', format: 'date-time' },
+                      },
+                    },
                   },
                 },
               },
             },
           },
-          401: { description: 'Unauthorized or token expired' },
+          202: {
+            description: 'Account deletion accepted; asynchronous storage cleanup queued',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    success: { type: 'boolean', example: true },
+                    message: { type: 'string', example: 'Account deletion accepted; cleanup is continuing' },
+                    data: {
+                      type: 'object',
+                      properties: {
+                        status: { type: 'string', enum: ['DELETING'], example: 'DELETING' },
+                        jobId: { type: 'string', format: 'uuid', example: '9e2e1d5c-5a2d-4c3f-9d1a-1234567890ab' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          401: { description: 'Unauthorized or token expired', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
     },
@@ -703,10 +788,10 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
         security: [{ bearerAuth: [] }],
         parameters: [
           { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
-          { name: 'limit', in: 'query', schema: { type: 'integer', default: 20 } },
-          { name: 'search', in: 'query', schema: { type: 'string' }, description: 'Filter by title substring' },
+          { name: 'limit', in: 'query', schema: { type: 'integer', default: 20, maximum: 100 } },
+          { name: 'q', in: 'query', schema: { type: 'string' }, description: 'Filter by title substring' },
           { name: 'folderId', in: 'query', schema: { type: 'string', format: 'uuid' }, description: 'Filter by specific folder' },
-          { name: 'isFavorite', in: 'query', schema: { type: 'boolean' }, description: 'Filter favorites only' },
+          { name: 'favorite', in: 'query', schema: { type: 'string', enum: ['true', 'false'] }, description: 'Filter favorites only' },
         ],
         responses: {
           200: {
@@ -729,8 +814,10 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
                           properties: {
                             page: { type: 'integer', example: 1 },
                             limit: { type: 'integer', example: 20 },
-                            total: { type: 'integer', example: 45 },
+                            totalCount: { type: 'integer', example: 45 },
                             totalPages: { type: 'integer', example: 3 },
+                            hasNextPage: { type: 'boolean', example: true },
+                            hasPrevPage: { type: 'boolean', example: false },
                           },
                         },
                       },
@@ -740,6 +827,7 @@ Production-ready REST API for the **ScanPro Document Scanner** ecosystem.
               },
             },
           },
+          422: { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         },
       },
       post: {

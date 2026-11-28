@@ -20,9 +20,4 @@ export class UsersRepository {
       return tx.user.update({ where: { id }, data });
     });
   }
-
-  /** Immediate hard deletion is intentionally not exposed from this repository. */
-  async deleteUser(id: string): Promise<void> {
-    throw new Error('Immediate account deletion is disabled; use AccountDeletionService');
-  }
 }
